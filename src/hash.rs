@@ -1,82 +1,143 @@
-use constant_time_eq::constant_time_eq;
-use std::fmt;
-use std::io::Read;
-use byteorder::ReadBytesExt;
-use std::hash;
-use std::cmp;
-use std::cmp::Ordering;
 
-use crate::{
-    error::CryptoError,
-    sodium::{HASH_BYTES, blake2b, Blake2BState},
+use crate::error::CryptoError;
+
+use std::{
+    fmt,
+    convert::TryFrom,
 };
 
-const DEFAULT_HASH_VERSION: u8 = 1;
-const MIN_HASH_VERSION: u8 = 1;
-const MAX_HASH_VERSION: u8 = 1;
+use blake2::{
+    VarBlake2b,
+    digest::{Update, VariableOutput},
+};
 
-const ALPHABET: &[u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-const DIGIT_MAP: &[i8] = &[
-    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-    -1, 0, 1, 2, 3, 4, 5, 6, 7, 8,-1,-1,-1,-1,-1,-1,
-    -1, 9,10,11,12,13,14,15,16,-1,17,18,19,20,21,-1,
-    22,23,24,25,26,27,28,29,30,31,32,-1,-1,-1,-1,-1,
-    -1,33,34,35,36,37,38,39,40,41,42,43,-1,44,45,46,
-    47,48,49,50,51,52,53,54,55,56,57,-1,-1,-1,-1,-1,
-];
+use subtle::{Choice, ConstantTimeEq};
 
-/// Crytographically secure hash of data. Can be signed by a FullKey. It is impractical to generate an 
-/// identical hash from different data.
+pub const DEFAULT_HASH_VERSION: u8 = 1;
+pub const MIN_HASH_VERSION: u8 = 1;
+pub const MAX_HASH_VERSION: u8 = 1;
+
+const V0_DIGEST_SIZE: usize = 0;
+const V1_DIGEST_SIZE: usize = 32;
+
+/// Crytographically secure hash of data. Offers constant time equality check (non-constant time 
+/// ordinal checks). A version byte is used to indicate what hash algorithm should be used. 
+/// Uses base58 encoding when displayed, unless overridden with hex formatting or debug formatting.
 ///
 /// # Supported Versions
 /// - 0: Null hash. Used to refer to hash of parent document
 /// - 1: Blake2B hash with 32 bytes of digest
 #[derive(Clone)]
 pub struct Hash {
-    version: u8,
-    digest: [u8; HASH_BYTES],
+    data: Vec<u8>,
 }
 
-/// A hasher that can incrementally take in data and produce a hash at any time.
-#[derive(Clone)]
-pub struct HashState {
-    version: u8,
-    state: Blake2BState,
+impl Hash {
+
+    /// Create a new hash from raw data, using the recommended algorithm.
+    pub fn new(data: impl AsRef<[u8]>) -> Self {
+        Self::with_version(data, DEFAULT_HASH_VERSION).unwrap()
+    }
+
+    /// Create a hash with a specific algorithm version. You should avoid this except when working 
+    /// through a upgrade process, where you may briefly need to support more than one version. 
+    /// Fails if the version isn't supported.
+    pub fn with_version(data: impl AsRef<[u8]>, version: u8) -> Result<Self, CryptoError> {
+        let mut state = HashState::with_version(version)?;
+        state.update(data);
+        Ok(state.finalize())
+    }
+
+    /// Create an empty Hash, Only valid in certain encoding contexts, and cannot be generated from 
+    /// actual data. Primarily meant to act as a reference to a parent document - i.e. if you want 
+    /// to refer to the hash of a data stream while within that data stream, this is a way to do 
+    /// that.
+    pub fn new_empty() -> Hash {
+        Self {
+            data: vec![0u8]
+        }
+    }
+
+    /// Algorithm version associated with this hash.
+    pub fn version(&self) -> u8 {
+        self.data[0]
+    }
+
+    /// The raw digest from the hash, without the version byte.
+    pub fn digest(&self) -> &[u8] {
+        &self.data[1..]
+    }
+
+    pub fn from_base58(s: &str) -> Result<Self, CryptoError> {
+        let raw = bs58::decode(s).into_vec().or(Err(CryptoError::BadFormat))?;
+        Self::try_from(&raw[..])
+    }
+
+    pub fn to_base58(&self) -> String {
+        bs58::encode(&self.data).into_string()
+    }
+
+    /// The raw cryptographic hash digest, without any version info.
+    pub fn raw_digest(&self) -> &[u8] {
+        &self.data[1..]
+    }
+
+}
+
+impl TryFrom<&[u8]> for Hash {
+    type Error = CryptoError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let raw = value.as_ref();
+        let version = raw.get(0)
+            .ok_or(CryptoError::BadLength{step: "get hash version", actual: 0, expected: 1})?;
+
+        // Length check
+        let expected_len = 1 + match version {
+            0 => V0_DIGEST_SIZE,
+            1 => V1_DIGEST_SIZE,
+            _ => return Err(CryptoError::UnsupportedVersion(*version)),
+        };
+        if raw.len() != expected_len {
+            return Err(CryptoError::BadLength{step: "get hash digest", actual: raw.len(), expected: expected_len});
+        }
+
+        Ok(Self {
+            data: Vec::from(raw),
+        })
+    }
+}
+
+impl std::convert::AsRef<[u8]> for Hash {
+    fn as_ref(&self) -> &[u8] {
+        &self.data[..]
+    }
+}
+
+impl ConstantTimeEq for Hash {
+    fn ct_eq(&self, other: &Self) -> Choice {
+        self.data[..].ct_eq(&other.data[..])
+    }
+}
+
+impl PartialEq for Hash {
+    fn eq(&self, other: &Self) -> bool {
+        self.ct_eq(other).into()
+    }
 }
 
 impl Eq for Hash { }
 
-impl PartialEq for Hash {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.version == other.version && constant_time_eq(&self.digest, &other.digest)
-    }
-}
-
 // Not constant time, as no cryptographic operation requires Ord. This is solely for ordering in a 
 // BTree
-impl cmp::Ord for Hash {
+use std::cmp::Ordering;
+impl std::cmp::Ord for Hash {
     fn cmp(&self, other: &Hash) -> Ordering {
-        match self.version.cmp(&other.version) {
-            Ordering::Greater => { return Ordering::Greater; },
-            Ordering::Less => { return Ordering::Less; }
-            _ => {},
-        }
-
-        for i in 0..HASH_BYTES {
-            match self.digest[i].cmp(&other.digest[i]) {
-                Ordering::Greater => { return Ordering::Greater; },
-                Ordering::Less => { return Ordering::Less; }
-                _ => {},
-            }
-        }
-        Ordering::Equal
+        self.data.cmp(&other.data)
     }
 }
 
-impl cmp::PartialOrd for Hash {
+impl std::cmp::PartialOrd for Hash {
     fn partial_cmp(&self, other: &Hash) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -84,20 +145,20 @@ impl cmp::PartialOrd for Hash {
 
 impl fmt::Debug for Hash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {{ version: {:?}, digest: {:x?} }}", stringify!(Hash), &self.version, &self.digest[..])
+        write!(f, "{} {{ version: {:?}, digest: {:x?} }}",
+            stringify!(Hash), &self.data[0], &self.data[1..])
     }
 }
 
 impl fmt::Display for Hash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.encode_base58())
+        write!(f, "{}", self.to_base58())
     }
 }
 
 impl fmt::LowerHex for Hash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::LowerHex::fmt(&self.version, f)?;
-        for byte in self.digest.iter() {
+        for byte in self.data.iter() {
             write!(f, "{:x}", byte)?;
         }
         Ok(())
@@ -106,188 +167,61 @@ impl fmt::LowerHex for Hash {
 
 impl fmt::UpperHex for Hash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::UpperHex::fmt(&self.version, f)?;
-        for byte in self.digest.iter() {
+        for byte in self.data.iter() {
             write!(f, "{:X}", byte)?;
         }
         Ok(())
     }
 }
 
-impl hash::Hash for Hash {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.version.hash(state);
-        self.digest.hash(state);
+impl std::hash::Hash for Hash {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.data.hash(state);
     }
 }
 
-impl Hash {
 
-    pub fn new(data: &[u8]) -> Hash {
-        let mut hash = Hash {
-            version: DEFAULT_HASH_VERSION,
-            digest: [0;HASH_BYTES]
-        };
-        blake2b(&mut hash.digest, data);
-        hash
-    }
-
-    pub fn with_version(version: u8, data: &[u8]) -> Result<Hash, CryptoError> {
-        if version > MAX_HASH_VERSION || version < MIN_HASH_VERSION {
-            return Err(CryptoError::UnsupportedVersion);
-        }
-        let mut hash = Hash {version, digest: [0;HASH_BYTES]};
-        blake2b(&mut hash.digest, data);
-        Ok(hash)
-    }
-
-    pub fn new_empty() -> Hash {
-        Hash { version: 0, digest: [0; HASH_BYTES] }
-    }
-
-    pub fn version(&self) -> u8 {
-        self.version
-    }
-
-    pub fn digest(&self) -> &[u8] {
-        &self.digest
-    }
-
-    pub fn size(&self) -> usize {
-        if self.version == 0 {
-            1
-        }
-        else {
-            HASH_BYTES+1
-        }
-    }
-
-    pub fn encode(&self, buf: &mut Vec<u8>) {
-        buf.reserve(self.size());
-        buf.push(self.version);
-        if self.version != 0 {
-            buf.extend_from_slice(&self.digest);
-        }
-    }
-
-    pub fn decode(buf: &mut &[u8]) -> Result<Hash, CryptoError> {
-        let version = buf.read_u8().map_err(CryptoError::Io)?;
-        if version == 0 { return Ok(Hash { version, digest:[0;HASH_BYTES] }); }
-        if version != 1 { return Err(CryptoError::UnsupportedVersion); }
-        let mut hash = Hash {version, digest:[0;HASH_BYTES]};
-        buf.read_exact(&mut hash.digest).map_err(CryptoError::Io)?;
-        Ok(hash)
-    }
-
-    pub fn encode_base58(&self) -> String {
-        // Version 0 means just a leading zero and nothing else.
-        if self.version == 0 {
-            return String::from("1");
-        }
-
-        // We never have leading zeros because the version byte is 1 (or higher)
-        // Run through base58 encoding loop, from the IETF Base58 Encoding Scheme 
-        // (draft-msporny-base58-01)
-        let mut input = Vec::with_capacity(self.size());
-        self.encode(&mut input);
-
-        let size = (input.len() * 89500 + 65535) >> 16; // ceil(size * log2(256)/log2(58)), scaled by 2^16.
-        let mut buffer = vec![0u8; size];
-        let mut high = size-1;
-
-        // Repeated long division by 58, emitting the remainder of each division
-        for byte in input {
-            let mut carry = byte as u32;
-            let mut j = size-1;
-            while j > high || carry != 0 {
-                carry |= 256 * buffer[j] as u32;
-                let rem = carry % 58;
-                let quot = carry / 58;
-                buffer[j] = rem as u8;
-                carry = quot;
-                if j > 0 { j-=1; }
-            }
-            high = j;
-        }
-
-        let mut result = String::new();
-        for j in (buffer.iter().take_while(|x| **x == 0).count())..size {
-            result.push(char::from(ALPHABET[buffer[j] as usize]));
-        }
-
-        result
-    }
-
-    pub fn decode_base58(s: &str) -> Result<Hash, CryptoError> {
-        if s.is_empty() { return Err(CryptoError::BadFormat); }
-        // If we only have one character and it's '1', then it's the empty hash.
-        if (s.len() == 1) && (s.as_bytes()[0] == b'1') {
-            return Ok(Hash::new_empty());
-        }
-        // Prepare to perform mapping & multiplication to decode
-        let mut buffer = [0u8; HASH_BYTES+1];
-        for byte in s.bytes() {
-            // Decode the character to 0-57, with -1 for invalid characters
-            let carry  = *DIGIT_MAP
-                .get(byte as usize)
-                .ok_or(CryptoError::BadFormat)?;
-            if carry == -1 { return Err(CryptoError::BadFormat); }
-            let mut carry = carry as u32;
-
-            // Big integer multiplication
-            for byte in buffer.iter_mut().rev() {
-                let t = (*byte as u32) * 58 + carry;
-                carry = (t & 0xFF00) >> 8;
-                *byte = (t & 0xFF) as u8;
-            }
-
-            // Shouldn't occur unless the hash is longer than expected
-            if carry != 0 { return Err(CryptoError::BadFormat); }
-        }
-        // The below array initializer looks stupid, yes, but it's quite probably the fastest way 
-        // to do this with safe rust. Slices complain about bounds, and everything else I know of 
-        // requires unsafe. Feel free to replace this if there's something more compact.
-        Ok(Hash {
-            version: buffer[0],
-            digest: [
-                buffer[ 1], buffer[ 2], buffer[ 3], buffer[ 4], buffer[ 5], buffer[ 6], buffer[ 7], buffer[ 8], 
-                buffer[ 9], buffer[10], buffer[11], buffer[12], buffer[13], buffer[14], buffer[15], buffer[16], 
-                buffer[17], buffer[18], buffer[19], buffer[20], buffer[21], buffer[22], buffer[23], buffer[24], 
-                buffer[25], buffer[26], buffer[27], buffer[28], buffer[29], buffer[30], buffer[31], buffer[32], 
-            ]
-        })
-    }
+/// A hasher that can incrementally take in data and produce a hash at any time.
+#[derive(Clone)]
+pub struct HashState {
+    state: VarBlake2b
 }
 
 impl HashState {
+
+    /// Initialize a new hasher.
     pub fn new() -> HashState {
-        HashState {
-            version: DEFAULT_HASH_VERSION,
-            state: Blake2BState::new()
-        }
+        Self::with_version(DEFAULT_HASH_VERSION).unwrap()
     }
 
+    /// Initialize a new hasher with a specific algorithm version. You should avoid this except 
+    /// when working through an upgrade process, where you may briefly need to support more than 
+    /// one version. Fails if the version isn't supported.
     pub fn with_version(version: u8) -> Result<HashState, CryptoError> {
         if version > MAX_HASH_VERSION || version < MIN_HASH_VERSION {
-            return Err(CryptoError::UnsupportedVersion);
+            return Err(CryptoError::UnsupportedVersion(version));
         }
-        Ok(HashState { version, state: Blake2BState::new() })
+        let state = VarBlake2b::new(V1_DIGEST_SIZE)
+            .expect("Blake2B didn't support the chosen digest size");
+        Ok(HashState { state })
     }
 
-    pub fn update(&mut self, data: &[u8]) {
+    /// Update the hasher with new input data.
+    pub fn update(&mut self, data: impl AsRef<[u8]>) {
         self.state.update(data);
     }
 
-    pub fn get_hash(&self) -> Hash {
-        let mut hash = Hash { version: self.version, digest: [0;HASH_BYTES] };
-        self.state.get_hash(&mut hash.digest);
-        hash
+    /// Get the hash of the data fed into the algorithm so far.
+    pub fn hash(&self) -> Hash {
+        self.clone().finalize()
     }
 
+    /// Finalize the hasher and produce a hash. Functions like `hash()` but consumes the state.
     pub fn finalize(self) -> Hash {
-        let mut hash = Hash { version: self.version, digest: [0;HASH_BYTES] };
-        self.state.finalize(&mut hash.digest);
-        hash
+        let mut data = Vec::with_capacity(1+V1_DIGEST_SIZE);
+        data.push(1u8);
+        self.state.finalize_variable(|res| data.extend_from_slice(res));
+        Hash { data }
     }
 }
 
@@ -299,7 +233,7 @@ impl Default for HashState {
 
 impl fmt::Debug for HashState {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(formatter, "{} {{ version: {:?} }}", stringify!(HashState), &self.version)
+        write!(formatter, "{} {{ version: {:?} }}", stringify!(HashState), 1)
     }
 }
 
@@ -311,9 +245,8 @@ mod tests {
     use hex;
 
     fn enc_dec(h: Hash) {
-        let mut v = Vec::new();
-        h.encode(&mut v);
-        let hd = Hash::decode(&mut &v[..]).unwrap();
+        let v = Vec::from(h.as_ref());
+        let hd = Hash::try_from(&v[..]).unwrap();
         assert_eq!(h, hd);
     }
 
@@ -328,26 +261,30 @@ mod tests {
             let h = Hash::new(&ref_input[..]);
             let mut state: HashState = HashState::new();
             state.update(&ref_input[..]);
-            let h2 = state.get_hash();
+            let h2 = state.hash();
             let h3 = state.finalize();
-            assert_eq!(h.version, 1u8);
-            assert_eq!(h.digest[..], ref_hash[..]);
-            assert_eq!(h2.version, 1u8);
-            assert_eq!(h2.digest[..], ref_hash[..]);
-            assert_eq!(h3.version, 1u8);
-            assert_eq!(h3.digest[..], ref_hash[..]);
+            assert_eq!(h.version(), 1u8);
+            assert_eq!(h.digest(), &ref_hash[..]);
+            assert_eq!(h2.version(), 1u8);
+            assert_eq!(h2.digest(), &ref_hash[..]);
+            assert_eq!(h3.version(), 1u8);
+            assert_eq!(h3.digest(), &ref_hash[..]);
             enc_dec(h)
         }
     }
 
     #[test]
     fn edge_cases() {
-        match Hash::with_version(0, &[1,2]).unwrap_err() {
-            CryptoError::UnsupportedVersion => (),
+        match Hash::with_version(&[1,2], 0).unwrap_err() {
+            CryptoError::UnsupportedVersion(v) => {
+                assert_eq!(v, 0, "UnsupportedVersion should have been 0");
+            },
             _ => panic!("New hash should always fail on version 0"),
         };
         match HashState::with_version(0).unwrap_err() {
-            CryptoError::UnsupportedVersion => (),
+            CryptoError::UnsupportedVersion(v) => {
+                assert_eq!(v, 0, "UnsupportedVersion should have been 0");
+            },
             _ => panic!("HashState should always fail on version 0"),
         };
         let digest = hex::decode(
@@ -360,9 +297,9 @@ mod tests {
     #[test]
     fn empty() {
         let h = Hash::new_empty();
-        let digest = [0u8; HASH_BYTES];
+        let blank: Vec<u8> = Vec::new();
         assert_eq!(h.version(), 0);
-        assert_eq!(h.digest(), &digest[..]);
+        assert_eq!(h.digest(), &blank[..]);
         enc_dec(h);
     }
 
@@ -377,8 +314,8 @@ mod tests {
                 v.push(rng.gen());
             }
             let h = Hash::new(&v[..]);
-            let b58 = h.encode_base58();
-            let h2 = Hash::decode_base58(&b58).unwrap();
+            let b58 = h.to_base58();
+            let h2 = Hash::from_base58(&b58).unwrap();
             let eq = h == h2;
             if !eq {
                 println!("in:  {}", h);

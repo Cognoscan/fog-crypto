@@ -1,126 +1,226 @@
 /*!
 Provides basic cryptographic functionality. Key management, encryption, and signing are all 
-done via a Vault. Before using anything, `crypto::init()` must be called.
+done via a Vault.
 
 A Vault is created using a password, or can be read in (either from a raw byte slice or from a 
 file). It can then be used to create "permanent" keys and "temporary" keys. The only difference is 
 that temporary keys are not saved when the Vault is saved off.
 */
 
-//use std::collections::HashMap;
-//use std::fs::File;
-//use std::io::{Write,BufReader, Read, ErrorKind};
-//use byteorder::ReadBytesExt;
-//use std::io;
-//
-//mod sodium;
-//mod error;
-//mod hash;
-//mod key;
-//mod stream;
-//mod lockbox;
-//
-//use self::key::{FullIdentity};
-//use self::stream::FullStreamKey;
-//
-//pub use self::error::CryptoError;
-//pub use self::hash::{Hash, HashState};
-//pub use self::key::{Signature, FullKey, Key, Identity};
-//pub use self::stream::StreamKey;
-//pub use self::lockbox::Lockbox;
-//
-//use self::sodium::{Tag, Nonce, PasswordConfig, SecretKey};
+mod error;
+pub use self::error::CryptoError;
 
-/// Initializes the underlying crypto library and makes all random number generation functions 
-/// thread-safe. *Must* be called successfully before using the rest of this library.
-pub fn init() -> Result<(), ()> {
-    sodium::init()
-}
+mod hash;
+pub use self::hash::*;
 
-/// Contains either the Key, StreamKey or data that was in the Lockbox
-//#[derive(Debug)]
-//pub enum LockboxContent {
-//    Key(Key),
-//    StreamKey(StreamKey),
-//    Data(Vec<u8>),
-//}
-//
-//#[derive(Clone, Copy, Debug)]
-//enum LockboxType {
-//    Key,
-//    StreamKey,
-//    Data,
-//}
-//
-//impl LockboxType {
-//    fn from_u8(i: u8) -> Option<LockboxType> {
-//        match i {
-//            1 => Some(LockboxType::Key),
-//            2 => Some(LockboxType::StreamKey),
-//            3 => Some(LockboxType::Data),
-//            _ => None
-//        }
-//    }
-//    fn into_u8(self) -> u8 {
-//        match self {
-//            LockboxType::Key       => 1,
-//            LockboxType::StreamKey => 2,
-//            LockboxType::Data      => 3,
-//        }
-//    }
-//}
-//
-/// The level of security to be provided by a password hashing function.
-#[derive(Clone, Copy, Debug)]
-pub enum PasswordLevel {
-    /// For online, reasonably fast password unlock. Requires 64 MiB of RAM.
-    Interactive,
-    /// Longer password unlock. Requires 256 MiB of RAM.
-    Moderate,
-    /// For sensitive, non-interactive operations. Requires 1024 MiB of RAM.
-    Sensitive,
-}
+mod signing;
+pub use self::signing::*;
 
-// Plan: We move all encrypt functions into the key itself. For decryption of lockboxes, we have a 
-// conundrum: we don't know if we can decrypt it ahead of time, and also a decrypted lockbox may 
-// contain a key - the type of lockbox is purposely obscured, remember. Should it be???
+pub trait Vault {
 
-trait Key {
-    fn encrypt(v:
+    fn new_perm_id(&self, name: String) -> IdentitySecret;
+    fn new_perm_lock(&self, name: String) -> LockKey;
+    fn new_perm_stream(&self, name: String) -> StreamKey;
 
-// The Vault must be easy to clone, send, sync, etc. This would mean hiding your implementation 
-// behind a Mutex, or putting it in a separate thread/task and having it process requests with 
-// responses (my favorite!)
-trait Vault {
-    fn new_perm_key(&self) -> Key;
-    fn new_perm_stream(&self) -> StreamKey;
-    fn new_temp_key(&self) -> Key;
+    fn new_temp_id(&self) -> IdentitySecret;
+    fn new_temp_lock(&self) -> LockKey;
     fn new_temp_stream(&self) -> StreamKey;
 
-    fn find_key(&self, id: Identity) -> Option<Key>;
-    fn find_stream(&self, stream: StreamId) -> Option<Key>;
+    fn get_key(&self, name: &str) -> Option<IdentitySecret>;
+    fn get_lock(&self, name: &str) -> Option<LockKey>;
+    fn get_stream(&self, name: &str) -> Option<StreamKey>;
 
-    fn drop_key(&self, key: Key) -> bool;
-    fn drop_stream(&self, stream: StreamKey) -> bool;
+    fn find_id(&self, id: Identity) -> Option<IdentitySecret>;
+    fn find_lock(&self, lock: LockId) -> Option<LockKey>;
+    fn find_stream(&self, stream: StreamId) -> Option<StreamKey>;
 
-    fn decrypt(&self, lock:
+    fn rename_id(&self, old_name: String, new_name: String) -> bool;
+    fn rename_lock(&self, old_name: String, new_name: String) -> bool;
+    fn rename_stream(&self, old_name: String, new_name: String) -> bool;
 
-
-    fn find_key
+    fn remove_id(&self, name: &str) -> bool;
+    fn remove_lock(&self, name: &str) -> bool;
+    fn remove_stream(&self, name: &str) -> bool;
 }
 
-trait Key {
-    fn version(&self) -> u8;
+pub struct LockKey { id: LockId, interface: Box<dyn LockInterface> }
+pub struct LockId {}
+pub struct StreamKey { id: StreamId, interface: Box<dyn StreamInterface> }
+pub struct StreamId {}
+pub struct Lockbox { }
+
+/// Lockboxes can be meant for one of two types of recipients: a LockId (public key), or a 
+/// StreamId (symmetric key).
+pub enum LockboxRecipient {
+    LockId(LockId),
+    StreamId(StreamId),
+}
 
 
+pub enum LockboxContent {
+    IdentitySecret(IdentitySecret),
+    LockKey(LockKey),
+    StreamKey(StreamKey),
+    Data(Vec<u8>),
+}
 
-New key/stream -> Return key/stream
-Find key/stream -> Result<key/stream>
-Drop key/stream -> bool, which is true if it was found and deleted
-Decrypt Lockbox -> Result<LockboxContent, CryptoError>
+impl LockKey {
 
+    pub fn version(&self) -> u8 {
+        self.id.version()
+    }
 
+    pub fn id(&self) -> &LockId {
+        &self.id
+    }
 
+    /// Attempt to decrypt a `Lockbox` using this key, returning its content
+    pub fn decrypt(&self, lockbox: &Lockbox) -> Result<LockboxContent, CryptoError> {
+        self.interface.decrypt(&self.id, lockbox)
+    }
+
+    /// Check if this lock key is in a permanent key store.
+    pub fn is_perm(&self) -> bool {
+        self.interface.is_perm(&self.id)
+    }
+
+    /// Move this to the permanent key store, if it isn't already. Returns true if the key was 
+    /// already in the permanent key store.
+    pub fn make_perm(&self) -> bool {
+        self.interface.make_perm(&self.id)
+    }
+
+    /// Pack this secret into a `Lockbox`, meant for the recipient specified by `id`. Returns None if 
+    /// the cannot be exported.
+    pub fn export_for_lock(&self, lock: &LockId) -> Option<Lockbox> {
+        self.interface.self_export_lock(&self.id, lock)
+    }
+
+    /// Pack this key into a `Lockbox`, meant for the recipient specified by `stream`. Returns None 
+    /// if this key cannot be exported.
+    pub fn export_for_stream(&self, stream: &StreamId) -> Option<Lockbox> {
+        self.interface.self_export_stream(&self.id, stream)
+    }
+
+}
+
+pub trait LockInterface {
+
+    fn decrypt(&self, id: &LockId, lockbox: &Lockbox) -> Result<LockboxContent, CryptoError>;
+
+    fn is_perm(&self, id: &LockId) -> bool;
+
+    fn make_perm(&self, id: &LockId) -> bool;
+
+    fn self_export_lock(&self, target: &LockId, receive_lock: &LockId) -> Option<Lockbox>;
+
+    fn self_export_stream(&self, target: &LockId, receive_stream: &StreamId) -> Option<Lockbox>;
+
+}
+
+impl LockId {
+
+    pub fn version(&self) -> u8 {
+        todo!()
+    }
+
+    pub fn raw_public_key(&self) -> &[u8] {
+        todo!()
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        todo!()
+    }
+
+    pub fn encrypt(&self, content: LockboxContent) -> Result<Lockbox, CryptoError> {
+        todo!()
+    }
+
+    pub fn from_bytes(raw: impl AsRef<[u8]>) -> Result<Self, CryptoError> {
+        todo!()
+    }
+
+}
+
+impl StreamKey {
+
+    pub fn version(&self) -> u8 {
+        todo!()
+    }
+
+    pub fn id(&self) -> StreamId {
+        todo!()
+    }
+
+    pub fn encrypt(&self, content: LockboxContent) -> Result<Lockbox, CryptoError> {
+        todo!()
+    }
+
+    pub fn decrypt(&self, lockbox: &Lockbox) -> Result<LockboxContent, CryptoError> {
+        todo!()
+    }
+
+    pub fn export_for_lock(&self, lock: &LockId) -> Option<Lockbox> {
+        self.interface.self_export_lock(&self.id, lock)
+    }
+
+    pub fn export_for_stream(&self, stream: &StreamId) -> Option<Lockbox> {
+        self.interface.self_export_stream(&self.id, stream)
+    }
+}
+
+pub fn new_stream(id: StreamId, interface: Box<dyn StreamInterface>) -> StreamKey {
+    StreamKey {
+        id,
+        interface,
+    }
+}
+
+pub trait StreamInterface: Sync + Send {
+    fn encrypt(&self, id: StreamId, content: LockboxContent) -> Result<Lockbox, CryptoError>;
+
+    fn decrypt(&self, id: StreamId, lockbox: Lockbox) -> Result<LockboxContent, CryptoError>;
+
+    fn self_export_lock(&self, target: &StreamId, receive_lock: &LockId) -> Option<Lockbox>;
+
+    fn self_export_stream(&self, target: &StreamId, receive_stream: &StreamId) -> Option<Lockbox>;
+}
+
+impl StreamId {
+
+    pub fn version(&self) -> u8 {
+        todo!()
+    }
+
+    pub fn raw_identifier(&self) -> &[u8] {
+        todo!()
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        todo!()
+    }
+
+}
+
+impl Lockbox {
+    pub fn from_bytes(raw: impl AsRef<[u8]>) -> Result<Self, CryptoError> {
+        todo!()
+    }
+
+    /// Get the target recipient who should be able to decrypt the lockbox.
+    pub fn recipient(&self) -> LockboxRecipient {
+        todo!()
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        todo!()
+    }
+
+    /// Try to decrypt the lockbox using any keys known by a given vault
+    pub fn try_decrypt(&self, vault: &dyn Vault) -> Result<LockboxContent, CryptoError> {
+        todo!()
+    }
+}
 
 
 

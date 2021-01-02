@@ -5,7 +5,6 @@
 //! Signing keys are all ed25519, encrypting keys are curve25519, secret keys are 32-byte shared 
 //! secrets used for XChaCha20.
 
-use std::ops::Drop;
 use std::fmt;
 use std::ptr;
 use std::ffi::CString;
@@ -15,7 +14,21 @@ use constant_time_eq::constant_time_eq;
 use byteorder::{BigEndian, ReadBytesExt};
 use std::io::Read;
 
-use crate::error::CryptoError;
+use crate::CryptoError;
+
+use zeroize::Zeroize;
+
+static LIB_INIT: std::sync::Once = std::sync::Once::new();
+
+fn lib_init() {
+    LIB_INIT.call_once(|| {
+        let init_result = unsafe { libsodium_sys::sodium_init() };
+        if init_result < 0 {
+            panic!("libsodium could not initialize, error code {}", init_result);
+        }
+    });
+}
+
 
 pub const HASH_BYTES:         usize = 32;
 
@@ -31,13 +44,17 @@ const SIGN_BYTES:         usize = libsodium_sys::crypto_sign_ed25519_BYTES as us
 const SALT_BYTES:         usize = libsodium_sys::crypto_pwhash_SALTBYTES as usize;
 
 // Secret Structs
-#[derive(Clone,Default)]
+#[derive(Clone,Default,Zeroize)]
+#[zeroize(drop)]
 pub struct Seed(pub [u8; SEED_KEY_BYTES]);
-#[derive(Clone)]
+#[derive(Clone,Zeroize)]
+#[zeroize(drop)]
 pub struct SecretSignKey([u8; SK_SIGN_KEY_BYTES]);
-#[derive(Clone,Default)]
+#[derive(Clone,Default,Zeroize)]
+#[zeroize(drop)]
 pub struct SecretCryptKey([u8; SK_CRYPT_KEY_BYTES]);
-#[derive(Clone,Default)]
+#[derive(Clone,Default,Zeroize)]
+#[zeroize(drop)]
 pub struct SecretKey(pub [u8; SECRET_KEY_BYTES]);
 
 #[derive(Clone,Default)]
@@ -171,11 +188,7 @@ impl Seed {
         SEED_KEY_BYTES
     }
 }
-impl Drop for Seed {
-    fn drop(&mut self) {
-        memzero(&mut self.0);
-    }
-}
+
 impl fmt::Debug for Seed {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         write!(formatter, "{}(****)", stringify!(Seed))
@@ -194,11 +207,6 @@ impl Default for SecretSignKey {
         SecretSignKey([0; SK_SIGN_KEY_BYTES])
     }
 }
-impl Drop for SecretSignKey {
-    fn drop(&mut self) {
-        memzero(&mut self.0);
-    }
-}
 impl fmt::Debug for SecretSignKey {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         write!(formatter, "{}(****)", stringify!(SecretSignKey))
@@ -212,11 +220,6 @@ impl PartialEq for SecretSignKey {
 }
 
 // SecretCryptKey
-impl Drop for SecretCryptKey {
-    fn drop(&mut self) {
-        memzero(&mut self.0);
-    }
-}
 impl fmt::Debug for SecretCryptKey {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         write!(formatter, "{}(****)", stringify!(SecretCryptKey))
@@ -235,11 +238,6 @@ impl SecretKey {
         SECRET_KEY_BYTES
     }
 }
-impl Drop for SecretKey {
-    fn drop(&mut self) {
-        memzero(&mut self.0);
-    }
-}
 impl fmt::Debug for SecretKey {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         write!(formatter, "{}(****)", stringify!(SecretKey))
@@ -256,6 +254,7 @@ impl PartialEq for SecretKey {
 impl Blake2BState {
     pub fn new() -> Blake2BState {
         let mut state: libsodium_sys::crypto_generichash_blake2b_state;
+        lib_init(); // Initialize here. Other libsodium calls inside Blake2BState require new() first.
         // Below will only fail or return -1 if we have more than 64 bytes in input or tell it to use a 
         // non-existant key
         unsafe {
@@ -301,6 +300,7 @@ impl Blake2BState {
 /// The password string is zeroed out no matter what.
 pub fn password_to_key(mut password: String, config: &PasswordConfig) -> Result<SecretKey, ()> {
     let mut key: SecretKey = Default::default();
+    lib_init();
     let result = unsafe {
         libsodium_sys::crypto_pwhash(
             key.0.as_mut_ptr(),
@@ -325,6 +325,7 @@ pub fn password_to_key(mut password: String, config: &PasswordConfig) -> Result<
 }
 
 pub fn aead_keygen(key: &mut SecretKey) {
+    lib_init();
     unsafe { libsodium_sys::crypto_aead_xchacha20poly1305_ietf_keygen(key.0.as_mut_ptr()) };
 }
 
@@ -332,6 +333,7 @@ pub fn aead_keygen(key: &mut SecretKey) {
 pub fn aead_encrypt(message: &mut [u8], ad: &[u8], n: &Nonce, k: &SecretKey) -> Tag {
     // tag will store the message authentication tag
     let mut tag = Tag([0; TAG_BYTES]);
+    lib_init();
     unsafe {
         libsodium_sys::crypto_aead_xchacha20poly1305_ietf_encrypt_detached(
             message.as_mut_ptr(),
@@ -351,6 +353,7 @@ pub fn aead_encrypt(message: &mut [u8], ad: &[u8], n: &Nonce, k: &SecretKey) -> 
 
 // Does in-place decryption of crypt and returns true if verification succeeds
 pub fn aead_decrypt(crypt: &mut [u8], ad: &[u8], tag: &[u8],n: &Nonce, k: &SecretKey) -> bool {
+    lib_init();
     0 <= unsafe {
         libsodium_sys::crypto_aead_xchacha20poly1305_ietf_decrypt_detached(
             crypt.as_mut_ptr(),
@@ -368,6 +371,7 @@ pub fn aead_decrypt(crypt: &mut [u8], ad: &[u8], tag: &[u8],n: &Nonce, k: &Secre
 
 // Shouldn't fail as long as the input parameters are valid
 pub fn derive_id(k: &SecretKey, id: &mut StreamId) {
+    lib_init();
     unsafe {
         let ctx = CString::from_vec_unchecked(b"fogpack".to_vec());
         libsodium_sys::crypto_kdf_derive_from_key(id.0.as_mut_ptr(), id.0.len(), 1, ctx.as_ptr(), k.0.as_ptr());
@@ -378,6 +382,7 @@ pub fn blake2b( hash: &mut [u8; HASH_BYTES], data: &[u8] ) {
     if data.len() > ::std::u64::MAX as usize {
         panic!("Data for hasher is somehow larger than maximum u64 value");
     }
+    lib_init();
     // The below will only fail if we set up this function wrong.
     unsafe { 
         libsodium_sys::crypto_generichash_blake2b(
@@ -388,6 +393,7 @@ pub fn blake2b( hash: &mut [u8; HASH_BYTES], data: &[u8] ) {
 }
 
 pub fn calc_secret(pk: &PublicCryptKey, sk: &SecretCryptKey) -> Result<SecretKey,CryptoError> {
+    lib_init();
     // This can fail with a bad key, so it must be checked
     let mut k: SecretKey = Default::default();
     if unsafe { 
@@ -402,26 +408,32 @@ pub fn calc_secret(pk: &PublicCryptKey, sk: &SecretCryptKey) -> Result<SecretKey
 }
 
 pub fn crypt_keypair(pk: &mut PublicCryptKey, sk: &mut SecretCryptKey) {
+    lib_init();
     unsafe { libsodium_sys::crypto_box_keypair(pk.0.as_mut_ptr(), sk.0.as_mut_ptr()) };
 }
 
 pub fn sign_keypair(pk: &mut PublicSignKey, sk: &mut SecretSignKey) {
+    lib_init();
     unsafe { libsodium_sys::crypto_sign_keypair(pk.0.as_mut_ptr(),sk.0.as_mut_ptr()) };
 }
 
 pub fn sign_seed_keypair(pk: &mut PublicSignKey, sk: &mut SecretSignKey, seed: &Seed) {
+    lib_init();
     unsafe { libsodium_sys::crypto_sign_seed_keypair(pk.0.as_mut_ptr(),sk.0.as_mut_ptr(), seed.0.as_ptr()) };
 }
 
 pub fn ed25519_sk_to_pk(pk: &mut PublicSignKey, sk: &SecretSignKey) {
+    lib_init();
     unsafe { libsodium_sys::crypto_sign_ed25519_sk_to_pk(pk.0.as_mut_ptr(),sk.0.as_ptr()) };
 }
 
 pub fn ed25519_sk_to_seed(seed: &mut Seed, ed: &SecretSignKey) {
+    lib_init();
     unsafe { libsodium_sys::crypto_sign_ed25519_sk_to_seed(seed.0.as_mut_ptr(),ed.0.as_ptr()) };
 }
 
 pub fn ed25519_sk_to_curve25519(curve: &mut SecretCryptKey, ed: &SecretSignKey) {
+    lib_init();
     unsafe { libsodium_sys::crypto_sign_ed25519_sk_to_curve25519(curve.0.as_mut_ptr(),ed.0.as_ptr()) };
 }
 
@@ -430,6 +442,7 @@ pub fn ed25519_pk_to_curve25519_pk(
     ed: &PublicSignKey,
 ) -> Result<(), CryptoError>
 {
+    lib_init();
     // Can actually fail with a bad key, so check it
     if unsafe {
         libsodium_sys::crypto_sign_ed25519_pk_to_curve25519(curve.0.as_mut_ptr(),ed.0.as_ptr())
@@ -442,6 +455,7 @@ pub fn ed25519_pk_to_curve25519_pk(
 }
 
 pub fn sign_detached(k: &SecretSignKey, m: &[u8]) -> Sign {
+    lib_init();
     let mut sig: Sign = Default::default();
     unsafe { libsodium_sys::crypto_sign_ed25519_detached(
             sig.0.as_mut_ptr(),
@@ -454,6 +468,7 @@ pub fn sign_detached(k: &SecretSignKey, m: &[u8]) -> Sign {
 }
 
 pub fn verify_detached(k: &PublicSignKey, m: &[u8], sig: &Sign) -> bool {
+    lib_init();
     // Verify was successful if non-negative
     0 <= unsafe {
         libsodium_sys::crypto_sign_ed25519_verify_detached(
@@ -466,23 +481,14 @@ pub fn verify_detached(k: &PublicSignKey, m: &[u8], sig: &Sign) -> bool {
 
 
 pub fn memzero(x: &mut [u8]) {
+    lib_init();
     unsafe { libsodium_sys::sodium_memzero(x.as_mut_ptr() as *mut _, x.len()); }
 }
 
 pub fn randombytes(x: &mut [u8]) {
+    lib_init();
     unsafe { libsodium_sys::randombytes_buf(x.as_mut_ptr() as *mut _, x.len()); }
 }
-
-/// Initializes the underlying crypto library and makes all random number generation functions 
-/// thread-safe.
-pub fn init() -> Result<(), ()> {
-    if unsafe { libsodium_sys::sodium_init() } >= 0 {
-        Ok(())
-    } else {
-        Err(())
-    }
-}
-
 
 #[cfg(test)]
 mod tests {
