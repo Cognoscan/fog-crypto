@@ -10,27 +10,27 @@ that temporary keys are not saved when the Vault is saved off.
 mod error;
 pub use self::error::CryptoError;
 
-mod hash;
-pub use self::hash::*;
+pub mod hash;
+use hash::*;
 
-mod signing;
-pub use self::signing::*;
+pub mod signing;
+use signing::*;
 
 pub trait Vault {
 
-    fn new_perm_id(&self, name: String) -> IdentitySecret;
+    fn new_perm_id(&self, name: String) -> IdentityKey;
     fn new_perm_lock(&self, name: String) -> LockKey;
     fn new_perm_stream(&self, name: String) -> StreamKey;
 
-    fn new_temp_id(&self) -> IdentitySecret;
+    fn new_temp_id(&self) -> IdentityKey;
     fn new_temp_lock(&self) -> LockKey;
     fn new_temp_stream(&self) -> StreamKey;
 
-    fn get_key(&self, name: &str) -> Option<IdentitySecret>;
+    fn get_key(&self, name: &str) -> Option<IdentityKey>;
     fn get_lock(&self, name: &str) -> Option<LockKey>;
     fn get_stream(&self, name: &str) -> Option<StreamKey>;
 
-    fn find_id(&self, id: Identity) -> Option<IdentitySecret>;
+    fn find_id(&self, id: Identity) -> Option<IdentityKey>;
     fn find_lock(&self, lock: LockId) -> Option<LockKey>;
     fn find_stream(&self, stream: StreamId) -> Option<StreamKey>;
 
@@ -58,7 +58,7 @@ pub enum LockboxRecipient {
 
 
 pub enum LockboxContent {
-    IdentitySecret(IdentitySecret),
+    IdentityKey(IdentityKey),
     LockKey(LockKey),
     StreamKey(StreamKey),
     Data(Vec<u8>),
