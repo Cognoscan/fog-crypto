@@ -48,7 +48,7 @@ match unverified.verify(&hash) {
 */
 use ed25519_dalek::{Signer, Verifier};
 
-use crate::{CryptoError, Hash, MIN_HASH_VERSION, MAX_HASH_VERSION, LockId, StreamId, Lockbox};
+use crate::{CryptoError, Hash, MIN_HASH_VERSION, MAX_HASH_VERSION, LockId, StreamKey, Lockbox};
 
 use std::{
     fmt,
@@ -102,22 +102,39 @@ impl IdentityKey {
 
     /// Pack this key into a `Lockbox`, meant for the recipient specified by `stream`. Returns None 
     /// if this key cannot be exported.
-    pub fn export_for_stream(&self, stream: &StreamId) -> Option<Lockbox> {
+    pub fn export_for_stream(&self, stream: &StreamKey) -> Option<Lockbox> {
         self.interface.self_export_stream(&self.id, stream)
     }
 }
+
+impl fmt::Display for IdentityKey {
+    /// Display as a base58-encoded string.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self.id(), f)
+    }
+}
+
+impl fmt::Debug for IdentityKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("IdentityKey")
+            .field("version", &self.version())
+            .field("public_key", &self.id().raw_public_key())
+            .finish()
+    }
+}
+
 
 /// An Identity, wrapping a public signing key.
 ///
 /// The byte encoding is, in order:
 /// 1. The version byte
 /// 2. The raw public signing key bytes
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Identity {
     inner: IdentityInner
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum IdentityInner {
     V1(ed25519_dalek::PublicKey),
 }
@@ -209,8 +226,10 @@ impl fmt::Debug for Identity {
         let (version, key_bytes) = match self.inner {
             IdentityInner::V1(ref id) => (1, id.as_bytes()),
         };
-        write!(f, "{} {{ version: {:?}, public key: {:x?} }}",
-            stringify!(Identity), version, key_bytes)
+        f.debug_struct("Identity")
+            .field("version", &version)
+            .field("public_key", key_bytes)
+            .finish()
     }
 }
 
@@ -249,6 +268,25 @@ pub fn new_identity_key(id: Identity, interface: Arc<dyn SignInterface>) -> Iden
     }
 }
 
+/// Generate a temporary `IdentityKey` that exists only in program memory.
+pub fn temp_identity_key<R>(csprng: &mut R) -> IdentityKey
+    where R: rand_core::CryptoRng + rand_core::RngCore
+{
+    let interface = Arc::new(ContainedIdKey::generate(csprng));
+    let id = interface.id();
+    new_identity_key(id, interface)
+}
+
+/// Generate a temporary `IdentityKey` that exists only in program memory. Uses the specified 
+/// version instead of the default, and fails if the version is unsupported.
+pub fn temp_identity_key_with_version<R>(csprng: &mut R, version: u8) -> Result<IdentityKey,CryptoError>
+    where R: rand_core::CryptoRng + rand_core::RngCore
+{
+    let interface = Arc::new(ContainedIdKey::with_version(csprng, version)?);
+    let id = interface.id();
+    Ok(new_identity_key(id, interface))
+}
+
 /// A Signature interface, implemented by anything that can hold a private cryptographic key. Must 
 /// implement all supported cryptographic signing algorithms. Each function is given a reference to 
 /// the `Identity` that will be used for signing, which may be optionally used for lookup if 
@@ -261,7 +299,7 @@ pub trait SignInterface {
     /// Export 
     fn self_export_lock(&self, target: &Identity, receive_lock: &LockId) -> Option<Lockbox>;
 
-    fn self_export_stream(&self, target: &Identity, receive_stream: &StreamId) -> Option<Lockbox>;
+    fn self_export_stream(&self, target: &Identity, receive_stream: &StreamKey) -> Option<Lockbox>;
 
 }
 
@@ -324,7 +362,7 @@ impl SignInterface for ContainedIdKey {
         todo!()
     }
 
-    fn self_export_stream(&self, target: &Identity, receive_stream: &StreamId) -> Option<Lockbox> {
+    fn self_export_stream(&self, target: &Identity, receive_stream: &StreamKey) -> Option<Lockbox> {
         todo!()
     }
 }
@@ -340,12 +378,14 @@ impl SignInterface for ContainedIdKey {
 /// 1. Hash version byte
 /// 2. The signing `Identity`, encoded
 /// 3. The cryptographic signature bytes
+#[derive(Clone,Copy,PartialEq,Eq)]
 pub struct Signature {
     hash_version: u8,
     id: Identity,
     inner: SignatureInner
 }
 
+#[derive(Clone,Copy,PartialEq,Eq)]
 enum SignatureInner {
     V1(ed25519_dalek::Signature),
 }
@@ -384,6 +424,19 @@ impl Signature {
 
 }
 
+impl fmt::Debug for Signature {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let signature: &[u8] = match self.inner {
+            SignatureInner::V1(ref signature) => signature.as_ref(),
+        };
+        f.debug_struct("Signature")
+            .field("hash_version", &self.hash_version)
+            .field("signer", &self.id)
+            .field("signature", &signature)
+            .finish()
+    }
+}
+
 /// A signature that has been read from a byte slice but hasn't been verified yet. Verification can 
 /// be done by getting the appropriate version of hash into the `verify(...)` function.
 ///
@@ -415,11 +468,13 @@ impl Signature {
 ///     }
 /// }
 /// ```
+#[derive(Clone,Copy,PartialEq,Eq)]
 pub struct UnverifiedSignature {
     hash_version: u8,
     inner: UnverifiedInner,
 }
 
+#[derive(Clone,Copy,PartialEq,Eq)]
 enum UnverifiedInner {
     V1 {
         signature: ed25519_dalek::Signature,
@@ -457,6 +512,19 @@ impl UnverifiedSignature {
             inner,
         })
         
+    }
+}
+
+impl fmt::Debug for UnverifiedSignature {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let (signature, id): (&[u8], &[u8]) = match self.inner {
+            UnverifiedInner::V1 { ref id, ref signature } => (id.as_bytes(), signature.as_ref()),
+        };
+        f.debug_struct("UnverifiedSignature")
+            .field("hash_version", &self.hash_version)
+            .field("signer", &id)
+            .field("signature", &signature)
+            .finish()
     }
 }
 

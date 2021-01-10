@@ -1,148 +1,270 @@
-use std::io::Read;
-use byteorder::ReadBytesExt;
-use std::fmt;
-
 use crate::{
-    error::CryptoError,
-    sodium::{StreamId, SecretKey, aead_keygen, derive_id},
+    lockbox::{Lockbox, LockboxTag, LockboxContent},
+    lock::LockId,
+    CryptoError,
 };
 
-/// A cryptographic symmetric key, used for creating a Lockbox. Requires accessing a Vault in order 
-/// to use it.
-#[derive(Clone,PartialEq,Eq,Hash)]
-pub struct StreamKey {
-    version: u8,
-    id: StreamId,
+use zeroize::Zeroize;
+
+use std::{
+    fmt,
+    sync::Arc,
+    convert::TryFrom
+};
+
+use blake2::{
+    VarBlake2b,
+    digest::{Update, VariableOutput},
+};
+
+pub const DEFAULT_STREAM_VERSION: u8 = 1;
+pub const MIN_STREAM_VERSION: u8 = 1;
+pub const MAX_STREAM_VERSION: u8 = 1;
+
+const V1_STREAM_ID_SIZE: usize = 32;
+const V1_STREAM_KEY_SIZE: usize = 32;
+
+/// Get expected size of StreamId for a given version. Version *must* be validated before calling 
+/// this.
+pub(crate) fn stream_id_size(version: u8) -> usize {
+    1+V1_STREAM_ID_SIZE
 }
 
-pub fn stream_from_id(version: u8, id: StreamId) -> StreamKey {
-    StreamKey { version, id }
+/// Get expected size of a StreamKey for a given version. Version *must* be validated before calling 
+/// this.
+pub(crate) fn stream_key_size(version: u8) -> usize {
+    1+V1_STREAM_KEY_SIZE
+}
+
+/// Stream Key that allows encrypting data into a `Lockbox`. This acts as a wrapper for a specific 
+/// cryptographic symmetric key, which can only be used with the corresponding symmetric encryption 
+/// algorithm. The underlying key may be located in a hardware module or some other private 
+/// keystore; in this case, it may be impossible to export the key.
+#[derive(Clone)]
+pub struct StreamKey {
+    id: StreamId,
+    interface: Arc<dyn StreamInterface>
+}
+
+impl StreamKey {
+
+    pub fn version(&self) -> u8 {
+        self.id.version()
+    }
+
+    pub fn id(&self) -> &StreamId {
+        &self.id
+    }
+
+    pub fn encrypt(&self, content: &[u8]) -> Result<Lockbox, CryptoError> {
+        self.encrypt_tagged(LockboxTag::Data, content)
+    }
+
+    /// Attempt to decrypt a `Lockbox` with this key. On success, any returned keys are temporary 
+    /// and not associated with any Vault.
+    pub fn decrypt(&self, lockbox: &Lockbox) -> Result<LockboxContent, CryptoError> {
+        self.interface.decrypt(&self.id, lockbox)
+    }
+
+    pub fn export_for_lock(&self, lock: &LockId) -> Option<Lockbox> {
+        self.interface.self_export_lock(&self.id, lock)
+    }
+
+    pub fn export_for_stream(&self, stream: &StreamKey) -> Option<Lockbox> {
+        self.interface.self_export_stream(&self.id, stream)
+    }
+
+    pub(crate) fn encrypt_tagged(&self, tag: LockboxTag, plaintext: &[u8]) -> Result<Lockbox, CryptoError> {
+        self.interface.encrypt_tagged(&self.id, tag, plaintext)
+    }
 }
 
 impl fmt::Debug for StreamKey {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(formatter, "{} {{ ver={}, {:x?} }}", stringify!(StreamKey), &self.version, &self.id.0[..])
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("StreamKey")
+            .field("version", &self.version())
+            .field("stream_id", &self.id().raw_identifier())
+            .finish()
     }
 }
 
-/// FullStreamKey: A secret XChaCha20 key, identifiable by its ID
-#[derive(Clone)]
-pub struct FullStreamKey {
-    version: u8,
-    id: StreamId,
-    key: SecretKey,
+impl fmt::Display for StreamKey {
+    /// Display just the StreamId (never the underlying key).
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self.id(), f)
+    }
 }
 
-impl FullStreamKey {
-    
-    fn blank() -> FullStreamKey {
-        FullStreamKey {
-            version: 0,
-            id: Default::default(),
-            key: Default::default(),
+pub fn new_stream_key(id: StreamId, interface: Arc<dyn StreamInterface>) -> StreamKey {
+    StreamKey {
+        id,
+        interface,
+    }
+}
+
+/// Generate a temporary `IdentityKey` that exists only in program memory.
+pub fn temp_stream_key<R>(csprng: &mut R) -> StreamKey
+    where R: rand_core::CryptoRng + rand_core::RngCore
+{
+    let interface = Arc::new(ContainedStreamKey::generate(csprng));
+    let id = interface.id();
+    new_stream_key(id, interface)
+}
+
+/// Generate a temporary `IdentityKey` that exists only in program memory. Uses the specified 
+/// version instead of the default, and fails if the version is unsupported.
+pub fn temp_stream_key_with_version<R>(csprng: &mut R, version: u8) -> Result<StreamKey,CryptoError>
+    where R: rand_core::CryptoRng + rand_core::RngCore
+{
+    let interface = Arc::new(ContainedStreamKey::with_version(csprng, version)?);
+    let id = interface.id();
+    Ok(new_stream_key(id, interface))
+}
+
+
+pub trait StreamInterface: Sync + Send {
+    fn decrypt(&self, id: &StreamId, lockbox: &Lockbox) -> Result<LockboxContent, CryptoError>;
+
+    fn self_export_lock(&self, target: &StreamId, receive_lock: &LockId) -> Option<Lockbox>;
+
+    fn self_export_stream(&self, target: &StreamId, receive_stream: &StreamKey) -> Option<Lockbox>;
+
+    fn encrypt_tagged(&self, id: &StreamId, tag: LockboxTag, plaintext: &[u8]) -> Result<Lockbox, CryptoError>;
+}
+
+#[derive(Zeroize)]
+#[zeroize(drop)]
+struct ContainedStreamKey {
+    inner: [u8; V1_STREAM_KEY_SIZE]
+}
+
+impl ContainedStreamKey {
+    pub fn generate<R>(csprng: &mut R) -> ContainedStreamKey
+        where R: rand_core::CryptoRng + rand_core::RngCore
+    {
+       Self::with_version(csprng, DEFAULT_STREAM_VERSION).unwrap()
+    }
+
+    pub fn with_version<R>(csprng: &mut R, version: u8) -> Result<ContainedStreamKey, CryptoError>
+        where R: rand_core::CryptoRng + rand_core::RngCore
+    {
+        if (version < MIN_STREAM_VERSION) || (version > MAX_STREAM_VERSION) {
+            return Err(CryptoError::UnsupportedVersion(version));
         }
+
+        let mut new = Self { inner: [0; V1_STREAM_KEY_SIZE] };
+        csprng.fill_bytes(&mut new.inner);
+        Ok(new)
     }
 
-    pub fn new() -> FullStreamKey {
-        let mut k = FullStreamKey::blank();
-        k.version = 1;
-        aead_keygen(&mut k.key);
-        k.complete();
-        k
+    pub fn id(&self) -> StreamId {
+        let mut hasher = VarBlake2b::new_keyed(b"fogcrypt", V1_STREAM_ID_SIZE);
+        hasher.update(&self.inner);
+        let mut id = StreamId { inner: Vec::with_capacity(1+V1_STREAM_ID_SIZE) };
+        id.inner.push(1u8);
+        hasher.finalize_variable(|hash| { id.inner.extend_from_slice(hash) });
+        id
+    }
+}
+
+impl StreamInterface for ContainedStreamKey {
+    fn encrypt_tagged(&self, id: &StreamId, tag: LockboxTag, plaintext: &[u8]) -> Result<Lockbox, CryptoError> {
+        todo!()
     }
 
-    pub fn from_secret(k: SecretKey) -> FullStreamKey {
-        let mut stream = FullStreamKey::blank();
-        stream.version = 1;
-        stream.key = k;
-        stream.complete();
-        stream
+    fn decrypt(&self, id: &StreamId, lockbox: &Lockbox) -> Result<LockboxContent, CryptoError> {
+        todo!()
     }
 
-    pub fn get_id(&self) -> StreamId {
-        (&self.id).clone()
+    fn self_export_lock(&self, target: &StreamId, receive_lock: &LockId) -> Option<Lockbox> {
+        todo!()
     }
 
-    pub fn get_version(&self) -> u8 {
-        self.version
+    fn self_export_stream(&self, target: &StreamId, receive_stream: &StreamKey) -> Option<Lockbox> {
+        todo!()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct StreamId {
+    inner: Vec<u8>
+}
+
+impl StreamId {
+
+    pub fn version(&self) -> u8 {
+        self.inner[0]
     }
 
-    pub fn get_key(&self) -> &SecretKey {
-        &self.key
+    pub fn raw_identifier(&self) -> &[u8] {
+        &self.inner[1..]
     }
 
-    pub fn get_stream_ref(&self) -> StreamKey {
-        StreamKey {
-            version: self.version,
-            id: self.get_id()
-        }
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.inner
     }
 
-    pub fn complete(&mut self) {
-        derive_id(&self.key, &mut self.id)
+    /// Convert into a base58-encoded StreamId.
+    pub fn to_base58(&self) -> String {
+        bs58::encode(self.as_bytes()).into_string()
     }
 
-    pub fn len(&self) -> usize {
-        1 + self.key.0.len()
-    }
-
-    pub fn max_len() -> usize {
-        1 + SecretKey::len()
-    }
-
-    pub fn encode(&self, buf: &mut Vec<u8>) {
-        buf.reserve(self.len());
-        buf.push(self.version);
-        buf.extend_from_slice(&self.key.0);
-    }
-
-    pub fn decode(buf: &mut &[u8]) -> Result<FullStreamKey, CryptoError> {
-        let mut k = FullStreamKey::blank();
-        k.version = buf.read_u8().map_err(CryptoError::Io)?;
-        if k.version != 1 { return Err(CryptoError::UnsupportedVersion); }
-        buf.read_exact(&mut k.key.0).map_err(CryptoError::Io)?;
-        k.complete();
-        Ok(k)
+    /// Attempt to parse a base58-encoded StreamId.
+    pub fn from_base58(s: &str) -> Result<Self, CryptoError> {
+        let raw = bs58::decode(s).into_vec().or(Err(CryptoError::BadFormat))?;
+        Self::try_from(&raw[..])
     }
 
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn example_key() -> FullStreamKey {
-        // Below test vectors come from using the C version of crypto_kdf_derive_from_key with 
-        // subkey index of 1 and "fogpack" as the context.
-        let key: [u8; 32] = [0x20, 0xa3, 0x02, 0x00, 0xe2, 0x5c, 0x38, 0x79,
-                             0x3f, 0x74, 0x59, 0x21, 0x10, 0x49, 0xb7, 0x62,
-                             0xb6, 0x6b, 0x15, 0xce, 0x02, 0xf2, 0x55, 0x79,
-                             0x48, 0xbf, 0x17, 0xd9, 0xb5, 0xc1, 0x22, 0xb4];
-        FullStreamKey::from_secret(SecretKey(key))
+impl TryFrom<&[u8]> for StreamId {
+    type Error = CryptoError;
+    /// Value must be the same length as the StreamId was when it was encoded (no trailing bytes 
+    /// allowed).
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let version = value.get(0)
+            .ok_or(CryptoError::BadLength{step: "get stream version", actual: 0, expected: 1})?;
+        let expected_len = 33;
+        if value.len() != expected_len {
+            return Err(CryptoError::BadLength{step: "get stream id", actual: value.len(), expected: expected_len});
+        }
+        Ok(Self {
+            inner: Vec::from(value)
+        })
     }
+}
 
-    #[test]
-    fn id_gen() {
-        let key = example_key();
-        let subkey: [u8; 32] = [0xe8, 0x23, 0x41, 0xd7, 0x6c, 0x68, 0x9f, 0x10,
-                                0x0b, 0xc4, 0x53, 0x5f, 0xf6, 0x4c, 0xc7, 0x2a,
-                                0xa8, 0xa5, 0x3a, 0x88, 0x53, 0x95, 0x09, 0x66,
-                                0xf8, 0x87, 0xc7, 0x6d, 0x5e, 0xee, 0xf4, 0xea];
-        assert_eq!(key.id.0, subkey);
+impl fmt::Debug for StreamId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let (version, id_bytes) = self.inner.split_first().unwrap();
+        f.debug_struct("Identity")
+            .field("version", version)
+            .field("stream_id", &id_bytes)
+            .finish()
     }
+}
 
-    fn enc_dec(k: FullStreamKey) {
-        let mut v = Vec::new();
-        k.encode(&mut v);
-        let kd = FullStreamKey::decode(&mut &v[..]).unwrap();
-        assert_eq!(k.version, kd.version);
-        assert_eq!(k.key.0, kd.key.0);
-        assert_eq!(k.id.0, kd.id.0);
+impl fmt::Display for StreamId {
+    /// Display as a base58-encoded string.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.to_base58())
     }
-    
-    #[test]
-    fn stream_enc() {
-        let k = example_key();
-        enc_dec(k);
+}
+
+impl fmt::LowerHex for StreamId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for byte in self.as_bytes().iter() {
+            write!(f, "{:x}", byte)?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::UpperHex for StreamId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for byte in self.as_bytes().iter() {
+            write!(f, "{:X}", byte)?;
+        }
+        Ok(())
     }
 }

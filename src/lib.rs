@@ -5,6 +5,48 @@ done via a Vault.
 A Vault is created using a password, or can be read in (either from a raw byte slice or from a 
 file). It can then be used to create "permanent" keys and "temporary" keys. The only difference is 
 that temporary keys are not saved when the Vault is saved off.
+
+
+# Cryptographic Algorithms Used
+
+The currently used algorithms are:
+
+- Hashing: Blake2B with a 32-byte digest
+- Signing: Ed25519
+- Symmetric Encryption: AEAD cipher using XChaCha20 and Poly1305.
+- DH key exchange: X25519
+
+# Cryptographic Versioning
+
+This library has 4 core cryptographic algorithms that may be upgraded over time:
+
+- The hash algorithm
+- The signing algorithm
+- The symmetric encryption algorithm (including bulk encryption, AEAD construction, and HMAC)
+- The DH exchange algorithm (used for encrypting data with a public key)
+
+Upgrades should be infrequent, and are done roughly when an existing recommended algorithm is 
+regarded as weak but not yet broken. 
+
+The ideal upgrade process is:
+
+1. A new algorithm is selected to replace an existing one.
+2. The new algorithm is implemented. The relevant MAX_VERSION constant is incremented.
+3. After being deployed for 1 year, the relevant DEFAULT_VERSION constant is incremented. This 
+   gives time for library users to support the new algorithm without breaking non-updated 
+   deployments.
+4. After 2 more years, the relevant MIN_VERSION constant is incremented. This gives time for 
+   library users to increment the default version on all deployments, then upgrade all existing 
+   stored data as required.
+
+This is the best-case upgrade scenario. If an existing algorithm is considered broken, the 
+DEFAULT_VERSION and MIN_VERSION will be incremented as soon as possible. "Broken" here means it is 
+feasible for a well-funded attacker to compromise the algorithm. Breaking compatibility with 
+deployed code is considered an acceptable choice when security is compromised.
+
+We are almost certainly going to upgrade the signing and DH exchange algorithms before 2030, as we 
+will need to move to post-quantum algorithms.
+
 */
 
 mod error;
@@ -16,17 +58,22 @@ use hash::*;
 pub mod signing;
 use signing::*;
 
+pub mod lock;
+use lock::*;
+
+pub mod lockbox;
+use lockbox::*;
+
+pub mod stream;
+use stream::*;
+
 pub trait Vault {
 
-    fn new_perm_id(&self, name: String) -> IdentityKey;
-    fn new_perm_lock(&self, name: String) -> LockKey;
-    fn new_perm_stream(&self, name: String) -> StreamKey;
+    fn new_id(&self, name: String) -> IdentityKey;
+    fn new_lock(&self, name: String) -> LockKey;
+    fn new_stream(&self, name: String) -> StreamKey;
 
-    fn new_temp_id(&self) -> IdentityKey;
-    fn new_temp_lock(&self) -> LockKey;
-    fn new_temp_stream(&self) -> StreamKey;
-
-    fn get_key(&self, name: &str) -> Option<IdentityKey>;
+    fn get_id(&self, name: &str) -> Option<IdentityKey>;
     fn get_lock(&self, name: &str) -> Option<LockKey>;
     fn get_stream(&self, name: &str) -> Option<StreamKey>;
 
@@ -34,220 +81,17 @@ pub trait Vault {
     fn find_lock(&self, lock: LockId) -> Option<LockKey>;
     fn find_stream(&self, stream: StreamId) -> Option<StreamKey>;
 
-    fn rename_id(&self, old_name: String, new_name: String) -> bool;
-    fn rename_lock(&self, old_name: String, new_name: String) -> bool;
-    fn rename_stream(&self, old_name: String, new_name: String) -> bool;
+    fn rename_id(&self, old_name: &str, new_name: String) -> bool;
+    fn rename_lock(&self, old_name: &str, new_name: String) -> bool;
+    fn rename_stream(&self, old_name: &str, new_name: String) -> bool;
 
     fn remove_id(&self, name: &str) -> bool;
     fn remove_lock(&self, name: &str) -> bool;
     fn remove_stream(&self, name: &str) -> bool;
+
+    /// Attempt to decrypt a lockbox using any of the locks & streams in the Vault. If the content 
+    /// of the Lockbox is a `StreamKey`, `LockKey`, or `IdentityKey`, it will be stored in the 
+    /// Vault under the provided name.
+    fn decrypt(&self, name: String, lock: &Lockbox) -> Result<LockboxContent,CryptoError>;
 }
-
-pub struct LockKey { id: LockId, interface: Box<dyn LockInterface> }
-pub struct LockId {}
-pub struct StreamKey { id: StreamId, interface: Box<dyn StreamInterface> }
-pub struct StreamId {}
-pub struct Lockbox { }
-
-/// Lockboxes can be meant for one of two types of recipients: a LockId (public key), or a 
-/// StreamId (symmetric key).
-pub enum LockboxRecipient {
-    LockId(LockId),
-    StreamId(StreamId),
-}
-
-
-pub enum LockboxContent {
-    IdentityKey(IdentityKey),
-    LockKey(LockKey),
-    StreamKey(StreamKey),
-    Data(Vec<u8>),
-}
-
-impl LockKey {
-
-    pub fn version(&self) -> u8 {
-        self.id.version()
-    }
-
-    pub fn id(&self) -> &LockId {
-        &self.id
-    }
-
-    /// Attempt to decrypt a `Lockbox` using this key, returning its content
-    pub fn decrypt(&self, lockbox: &Lockbox) -> Result<LockboxContent, CryptoError> {
-        self.interface.decrypt(&self.id, lockbox)
-    }
-
-    /// Check if this lock key is in a permanent key store.
-    pub fn is_perm(&self) -> bool {
-        self.interface.is_perm(&self.id)
-    }
-
-    /// Move this to the permanent key store, if it isn't already. Returns true if the key was 
-    /// already in the permanent key store.
-    pub fn make_perm(&self) -> bool {
-        self.interface.make_perm(&self.id)
-    }
-
-    /// Pack this secret into a `Lockbox`, meant for the recipient specified by `id`. Returns None if 
-    /// the cannot be exported.
-    pub fn export_for_lock(&self, lock: &LockId) -> Option<Lockbox> {
-        self.interface.self_export_lock(&self.id, lock)
-    }
-
-    /// Pack this key into a `Lockbox`, meant for the recipient specified by `stream`. Returns None 
-    /// if this key cannot be exported.
-    pub fn export_for_stream(&self, stream: &StreamId) -> Option<Lockbox> {
-        self.interface.self_export_stream(&self.id, stream)
-    }
-
-}
-
-pub trait LockInterface {
-
-    fn decrypt(&self, id: &LockId, lockbox: &Lockbox) -> Result<LockboxContent, CryptoError>;
-
-    fn is_perm(&self, id: &LockId) -> bool;
-
-    fn make_perm(&self, id: &LockId) -> bool;
-
-    fn self_export_lock(&self, target: &LockId, receive_lock: &LockId) -> Option<Lockbox>;
-
-    fn self_export_stream(&self, target: &LockId, receive_stream: &StreamId) -> Option<Lockbox>;
-
-}
-
-impl LockId {
-
-    pub fn version(&self) -> u8 {
-        todo!()
-    }
-
-    pub fn raw_public_key(&self) -> &[u8] {
-        todo!()
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        todo!()
-    }
-
-    pub fn encrypt(&self, content: LockboxContent) -> Result<Lockbox, CryptoError> {
-        todo!()
-    }
-
-    pub fn from_bytes(raw: impl AsRef<[u8]>) -> Result<Self, CryptoError> {
-        todo!()
-    }
-
-}
-
-impl StreamKey {
-
-    pub fn version(&self) -> u8 {
-        todo!()
-    }
-
-    pub fn id(&self) -> StreamId {
-        todo!()
-    }
-
-    pub fn encrypt(&self, content: LockboxContent) -> Result<Lockbox, CryptoError> {
-        todo!()
-    }
-
-    pub fn decrypt(&self, lockbox: &Lockbox) -> Result<LockboxContent, CryptoError> {
-        todo!()
-    }
-
-    pub fn export_for_lock(&self, lock: &LockId) -> Option<Lockbox> {
-        self.interface.self_export_lock(&self.id, lock)
-    }
-
-    pub fn export_for_stream(&self, stream: &StreamId) -> Option<Lockbox> {
-        self.interface.self_export_stream(&self.id, stream)
-    }
-}
-
-pub fn new_stream(id: StreamId, interface: Box<dyn StreamInterface>) -> StreamKey {
-    StreamKey {
-        id,
-        interface,
-    }
-}
-
-pub trait StreamInterface: Sync + Send {
-    fn encrypt(&self, id: StreamId, content: LockboxContent) -> Result<Lockbox, CryptoError>;
-
-    fn decrypt(&self, id: StreamId, lockbox: Lockbox) -> Result<LockboxContent, CryptoError>;
-
-    fn self_export_lock(&self, target: &StreamId, receive_lock: &LockId) -> Option<Lockbox>;
-
-    fn self_export_stream(&self, target: &StreamId, receive_stream: &StreamId) -> Option<Lockbox>;
-}
-
-impl StreamId {
-
-    pub fn version(&self) -> u8 {
-        todo!()
-    }
-
-    pub fn raw_identifier(&self) -> &[u8] {
-        todo!()
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        todo!()
-    }
-
-}
-
-impl Lockbox {
-    pub fn from_bytes(raw: impl AsRef<[u8]>) -> Result<Self, CryptoError> {
-        todo!()
-    }
-
-    /// Get the target recipient who should be able to decrypt the lockbox.
-    pub fn recipient(&self) -> LockboxRecipient {
-        todo!()
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        todo!()
-    }
-
-    /// Try to decrypt the lockbox using any keys known by a given vault
-    pub fn try_decrypt(&self, vault: &dyn Vault) -> Result<LockboxContent, CryptoError> {
-        todo!()
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

@@ -145,8 +145,11 @@ impl std::cmp::PartialOrd for Hash {
 
 impl fmt::Debug for Hash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {{ version: {:?}, digest: {:x?} }}",
-            stringify!(Hash), &self.data[0], &self.data[1..])
+        let (version, digest) = self.data.split_first().unwrap();
+        f.debug_struct("Hash")
+            .field("version", version)
+            .field("digest", &digest)
+            .finish()
     }
 }
 
