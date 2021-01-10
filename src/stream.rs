@@ -26,13 +26,13 @@ const V1_STREAM_KEY_SIZE: usize = 32;
 
 /// Get expected size of StreamId for a given version. Version *must* be validated before calling 
 /// this.
-pub(crate) fn stream_id_size(version: u8) -> usize {
+pub(crate) fn stream_id_size(_version: u8) -> usize {
     1+V1_STREAM_ID_SIZE
 }
 
 /// Get expected size of a StreamKey for a given version. Version *must* be validated before calling 
 /// this.
-pub(crate) fn stream_key_size(version: u8) -> usize {
+pub(crate) fn stream_key_size(_version: u8) -> usize {
     1+V1_STREAM_KEY_SIZE
 }
 
@@ -266,5 +266,93 @@ impl fmt::UpperHex for StreamId {
             write!(f, "{:X}", byte)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lockbox::LockboxRecipient;
+
+    #[test]
+    fn stream_lock_data() {
+        let mut csprng = rand::rngs::OsRng;
+        let key = temp_stream_key(&mut csprng);
+        let message = b"I am a test message, going undercover";
+        let lockbox = key.encrypt(message).unwrap();
+        let expected_recipient = LockboxRecipient::StreamId(key.id().clone());
+        assert_eq!(&expected_recipient, lockbox.recipient());
+        let enc = Vec::from(lockbox.as_bytes());
+
+        let dec_lockbox = Lockbox::try_from(&enc[..]).unwrap();
+        assert_eq!(&expected_recipient, dec_lockbox.recipient());
+        let dec_message = key.decrypt(&dec_lockbox).unwrap();
+        let dec_message = if let LockboxContent::Data(d) = dec_message { d } else {
+            panic!("Payload should have been data");
+        };
+        assert_eq!(message, &dec_message[..]);
+    }
+
+    #[test]
+    fn stream_lock_id_key() {
+        let mut csprng = rand::rngs::OsRng;
+        let key = temp_stream_key(&mut csprng);
+        let to_send = crate::signing::temp_identity_key(&mut csprng);
+        let lockbox = to_send.export_for_stream(&key).unwrap();
+        let expected_recipient = LockboxRecipient::StreamId(key.id().clone());
+        assert_eq!(&expected_recipient, lockbox.recipient());
+        let enc = Vec::from(lockbox.as_bytes());
+
+        let dec_lockbox = Lockbox::try_from(&enc[..]).unwrap();
+        assert_eq!(&expected_recipient, dec_lockbox.recipient());
+        let dec_key = key.decrypt(&dec_lockbox).unwrap();
+        let dec_key = if let LockboxContent::IdentityKey(k) = dec_key { k } else {
+            panic!("Payload should have been an IdentityKey");
+        };
+        assert_eq!(to_send.id(), dec_key.id());
+    }
+
+    #[test]
+    fn stream_lock_stream_key() {
+        let mut csprng = rand::rngs::OsRng;
+        let key = temp_stream_key(&mut csprng);
+        let to_send = temp_stream_key(&mut csprng);
+
+        // Build up the lockbox & encode
+        let lockbox = to_send.export_for_stream(&key).unwrap();
+        let expected_recipient = LockboxRecipient::StreamId(key.id().clone());
+        assert_eq!(&expected_recipient, lockbox.recipient());
+        let enc = Vec::from(lockbox.as_bytes());
+
+        // Decode the lockbox
+        let dec_lockbox = Lockbox::try_from(&enc[..]).unwrap();
+        assert_eq!(&expected_recipient, dec_lockbox.recipient());
+        let dec_key = key.decrypt(&dec_lockbox).unwrap();
+        let dec_key = if let LockboxContent::StreamKey(k) = dec_key { k } else {
+            panic!("Payload should have been a StreamKey");
+        };
+        assert_eq!(to_send.id(), dec_key.id());
+    }
+
+    #[test]
+    fn stream_lock_lock_key() {
+        let mut csprng = rand::rngs::OsRng;
+        let key = temp_stream_key(&mut csprng);
+        let to_send = crate::temp_lock_key(&mut csprng);
+
+        // Build up the lockbox & encode
+        let lockbox = to_send.export_for_stream(&key).unwrap();
+        let expected_recipient = LockboxRecipient::StreamId(key.id().clone());
+        assert_eq!(&expected_recipient, lockbox.recipient());
+        let enc = Vec::from(lockbox.as_bytes());
+
+        // Decode the lockbox
+        let dec_lockbox = Lockbox::try_from(&enc[..]).unwrap();
+        assert_eq!(&expected_recipient, dec_lockbox.recipient());
+        let dec_key = key.decrypt(&dec_lockbox).unwrap();
+        let dec_key = if let LockboxContent::LockKey(k) = dec_key { k } else {
+            panic!("Payload should have been a StreamKey");
+        };
+        assert_eq!(to_send.id(), dec_key.id());
     }
 }
