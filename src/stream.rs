@@ -105,7 +105,7 @@ impl StreamKey {
     ) -> DataLockbox {
         data_lockbox_from_parts(
             LockboxRecipient::StreamId(self.id().clone()),
-            self.interface.encrypt(csprng, content)
+            self.interface.encrypt(csprng, LockboxType::Data(true), content)
         )
     }
 
@@ -165,9 +165,10 @@ impl StreamKey {
 pub fn stream_key_encrypt(
     key: &StreamKey,
     csprng: &mut dyn CryptoSrc,
+    lock_type: LockboxType,
     content: &[u8]
 ) -> Vec<u8> {
-    key.interface.encrypt(csprng, content)
+    key.interface.encrypt(csprng, lock_type, content)
 }
 
 impl fmt::Debug for StreamKey {
@@ -203,6 +204,7 @@ pub trait StreamInterface: Sync + Send {
     fn encrypt(
         &self,
         csprng: &mut dyn CryptoSrc,
+        lock_type: LockboxType,
         content: &[u8]
     ) -> Vec<u8>;
 
@@ -387,9 +389,11 @@ impl StreamInterface for ContainedStreamKey {
     fn encrypt(
         &self,
         csprng: &mut dyn CryptoSrc,
+        lock_type: LockboxType,
         content: &[u8],
     ) -> Vec<u8> {
 
+        assert!(lock_type.is_for_stream(), "Tried to encrypt a non-stream-recipient lockbox with a StreamId");
         use chacha20poly1305::{XChaCha20Poly1305, Key, XNonce};
         use chacha20poly1305::aead::{NewAead, AeadInPlace};
 
@@ -406,7 +410,7 @@ impl StreamInterface for ContainedStreamKey {
 
         // Lockbox header & data
         lockbox.push(version);
-        lockbox.push(LOCKBOX_TYPE_STREAM);
+        lockbox.push(lock_type.as_u8());
         id.encode_vec(&mut lockbox);
         lockbox.extend_from_slice(nonce.as_ref());
         lockbox.extend_from_slice(content);
@@ -479,7 +483,7 @@ impl StreamInterface for ContainedStreamKey {
     ) -> Option<StreamLockbox> {
         let mut raw_secret = Vec::new(); // Make 100% certain this is zeroized at the end!
         self.encode_vec(&mut raw_secret);
-        let lockbox_vec = lock_id_encrypt(receive_lock, &raw_secret, csprng);
+        let lockbox_vec = lock_id_encrypt(receive_lock, csprng, LockboxType::Stream(false), &raw_secret);
         raw_secret.zeroize();
         debug_assert!(raw_secret.iter().all(|&x| x == 0)); // You didn't remove the zeroize call, right?
         Some(stream_lockbox_from_parts(
@@ -495,7 +499,7 @@ impl StreamInterface for ContainedStreamKey {
     ) -> Option<StreamLockbox> {
         let mut raw_secret = Vec::new(); // Make 100% certain this is zeroized at the end!
         self.encode_vec(&mut raw_secret);
-        let lockbox_vec = stream_key_encrypt(receive_stream, csprng, &raw_secret);
+        let lockbox_vec = stream_key_encrypt(receive_stream, csprng, LockboxType::Stream(true), &raw_secret);
         raw_secret.zeroize();
         debug_assert!(raw_secret.iter().all(|&x| x == 0)); // You didn't remove the zeroize call, right?
         Some(stream_lockbox_from_parts(
@@ -527,7 +531,7 @@ impl StreamId {
 
     /// Attempt to parse a base58-encoded StreamId.
     pub fn from_base58(s: &str) -> Result<Self, CryptoError> {
-        let raw = bs58::decode(s).into_vec().or(Err(CryptoError::BadFormat))?;
+        let raw = bs58::decode(s).into_vec().or(Err(CryptoError::BadFormat("Not valid Base58")))?;
         Self::try_from(&raw[..])
     }
 

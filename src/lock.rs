@@ -197,7 +197,7 @@ impl LockId {
     {
         data_lockbox_from_parts(
             LockboxRecipient::LockId(self.clone()),
-            lock_id_encrypt(&self, content, csprng)
+            lock_id_encrypt(&self, csprng, LockboxType::Data(false), content)
         )
     }
 
@@ -221,7 +221,7 @@ impl LockId {
 
     /// Attempt to parse a base58-encoded `LockId`.
     pub fn from_base58(s: &str) -> Result<Self, CryptoError> {
-        let raw = bs58::decode(s).into_vec().or(Err(CryptoError::BadFormat))?;
+        let raw = bs58::decode(s).into_vec().or(Err(CryptoError::BadFormat("Not valid Base58")))?;
         Self::try_from(&raw[..])
     }
 
@@ -310,8 +310,14 @@ impl fmt::UpperHex for LockId {
 /// [`StreamInterface`], [`LockInterface`] can use this when exporting keys. It's not inside the 
 /// regular `LockId` methods because those are meant for users, which should not use this 
 /// function and instead rely on the various `export...` and `encrypt_data` functions.
-pub fn lock_id_encrypt(id: &LockId, content: &[u8], csprng: &mut dyn CryptoSrc) -> Vec<u8>
+pub fn lock_id_encrypt(
+    id: &LockId,
+    csprng: &mut dyn CryptoSrc,
+    lock_type: LockboxType,
+    content: &[u8],
+) -> Vec<u8>
 {
+    assert!(!lock_type.is_for_stream(), "Tried to encrypt a non-lock-recipient lockbox with a LockId");
     use chacha20poly1305::{XChaCha20Poly1305, Key, XNonce};
     use chacha20poly1305::aead::{NewAead, AeadInPlace};
 
@@ -331,7 +337,7 @@ pub fn lock_id_encrypt(id: &LockId, content: &[u8], csprng: &mut dyn CryptoSrc) 
 
     // Lockbox header & data
     lockbox.push(version);
-    lockbox.push(LOCKBOX_TYPE_LOCK);
+    lockbox.push(lock_type.as_u8());
     id.encode_vec(&mut lockbox);
     lockbox.extend_from_slice(eph_pub.as_bytes());
     lockbox.extend_from_slice(&nonce);
@@ -547,7 +553,7 @@ impl LockInterface for ContainedLockKey {
     ) -> Option<LockLockbox> {
         let mut raw_secret = Vec::new(); // Make 100% certain this is zeroized at the end!
         self.encode_vec(&mut raw_secret);
-        let lockbox_vec = lock_id_encrypt(receive_lock, &raw_secret, csprng);
+        let lockbox_vec = lock_id_encrypt(receive_lock, csprng, LockboxType::Lock(false), &raw_secret);
         raw_secret.zeroize();
         debug_assert!(raw_secret.iter().all(|&x| x == 0)); // You didn't remove the zeroize call, right?
         Some(lock_lockbox_from_parts(
@@ -563,7 +569,7 @@ impl LockInterface for ContainedLockKey {
     ) -> Option<LockLockbox> {
         let mut raw_secret = Vec::new(); // Make 100% certain this is zeroized at the end!
         self.encode_vec(&mut raw_secret);
-        let lockbox_vec = stream_key_encrypt(receive_stream, csprng, &raw_secret);
+        let lockbox_vec = stream_key_encrypt(receive_stream, csprng, LockboxType::Lock(true), &raw_secret);
         raw_secret.zeroize();
         debug_assert!(raw_secret.iter().all(|&x| x == 0)); // You didn't remove the zeroize call, right?
         Some(lock_lockbox_from_parts(
@@ -591,6 +597,7 @@ mod tests {
         let enc = Vec::from(lockbox.as_bytes());
 
         // Decrypt
+        println!("Header = {:x?}", &enc[0..4]);
         let dec_lockbox = DataLockbox::try_from(&enc[..]).unwrap();
         assert_eq!(&expected_recipient, dec_lockbox.recipient());
         let dec_message = key.decrypt_data(&dec_lockbox).unwrap();

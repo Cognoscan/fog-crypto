@@ -199,7 +199,7 @@ impl Identity {
 
     /// Attempt to parse a base58-encoded Identity.
     pub fn from_base58(s: &str) -> Result<Self, CryptoError> {
-        let raw = bs58::decode(s).into_vec().or(Err(CryptoError::BadFormat))?;
+        let raw = bs58::decode(s).into_vec().or(Err(CryptoError::BadFormat("Not valid Base58")))?;
         Self::try_from(&raw[..])
     }
 
@@ -422,7 +422,7 @@ impl SignInterface for ContainedIdKey {
     ) -> Option<IdentityLockbox> {
         let mut raw_secret = Vec::new(); // Make 100% certain this is zeroized at the end!
         self.encode_vec(&mut raw_secret);
-        let lockbox_vec = crate::lock::lock_id_encrypt(receive_lock, &raw_secret, csprng);
+        let lockbox_vec = crate::lock::lock_id_encrypt(receive_lock, csprng, LockboxType::Identity(false), &raw_secret);
         raw_secret.zeroize();
         debug_assert!(raw_secret.iter().all(|&x| x == 0)); // You didn't remove the zeroize call, right?
         Some(identity_lockbox_from_parts(
@@ -438,7 +438,7 @@ impl SignInterface for ContainedIdKey {
     ) -> Option<IdentityLockbox> {
         let mut raw_secret = Vec::new(); // Make 100% certain this is zeroized at the end!
         self.encode_vec(&mut raw_secret);
-        let lockbox_vec = crate::stream::stream_key_encrypt(receive_stream, csprng, &raw_secret);
+        let lockbox_vec = crate::stream::stream_key_encrypt(receive_stream, csprng, LockboxType::Identity(true), &raw_secret);
         raw_secret.zeroize();
         debug_assert!(raw_secret.iter().all(|&x| x == 0)); // You didn't remove the zeroize call, right?
         Some(identity_lockbox_from_parts(

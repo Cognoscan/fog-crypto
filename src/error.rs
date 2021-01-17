@@ -15,7 +15,7 @@ pub enum CryptoError {
     BadKey,
     /// The data format doesn't match spec. Can occur when decoding a lockbox or attempting to 
     /// decode from a String.
-    BadFormat,
+    BadFormat(&'static str),
     /// An operation expected a specific object but didn't get it. Eg. Signature verification 
     /// expects a specific version of hash and fails if it doesn't get a hash with that version, or 
     /// a Lockbox should be unlocked with a specific key but we attempted to use the wrong one. 
@@ -39,8 +39,8 @@ impl fmt::Display for CryptoError {
                 write!(f, "Expected data length {}, but got {} on step \"{}\"", expected, actual, step),
             CryptoError::BadKey =>
                 write!(f, "Crypto key is weak or invalid"),
-            CryptoError::BadFormat =>
-                write!(f, "Format of data does not match specification"),
+            CryptoError::BadFormat(s) =>
+                write!(f, "Format of data does not match speci: {}", s),
             CryptoError::ObjectMismatch(s) =>
                 write!(f, "Object mismatch: {}", s),
             CryptoError::SignatureFailed =>

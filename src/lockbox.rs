@@ -6,7 +6,8 @@
 //! - [`LockLockbox`]: Stores a [`LockKey`]
 //! - [`DataLockbox`]: Stores an arbitrary byte sequence
 //!
-//! Each lockbox is encoded the same way; the lockbox type must be known when decoding it.
+//! Each lockbox is encoded in a similar way. The lockbox type should be known when attempting to 
+//! decode it, though if necessary it is also possible to determine the type through decoding.
 //! 
 //! A lockbox is created with a specific [`LockId`] or [`StreamKey`] as the intended recipient. 
 //! A `DataLockbox` can be created by calling the encrypt function on a `StreamKey` or `LockId`, 
@@ -20,23 +21,43 @@
 //! recipients, an ephemeral X25519 keypair is generated and DH key agreement is used to generate 
 //! the key.
 //!
+//! # Lockbox Types
+//!
+//! The different types of lockboxes each have 2 subtypes: one for `LockId`-recipient lockboxes, 
+//! and one for `StreamKey`-recipient lockboxes. The encoded type byte is thus:
+//!
+//! | Recipient  | Type              | Byte Value |
+//! | --         | --                | --         |
+//! | `LockId`   | `IdentityLockbox` | 0          |
+//! | `StreamId` | `IdentityLockbox` | 1          |
+//! | `LockId`   | `StreamLockbox`   | 2          |
+//! | `StreamId` | `StreamLockbox`   | 3          |
+//! | `LockId`   | `LockLockbox`     | 4          |
+//! | `StreamId` | `LockLockbox`     | 5          |
+//! | `LockId`   | `DataLockbox`     | 6          |
+//! | `StreamId` | `DataLockbox`     | 7          |
+//!
+//! Alternately, the Type byte can be considered to have two bitfields: Bit 0 encodes the 
+//! recipient, and Bits 2 & 1 encode the main lockbox type.
+//!
 //! # Format
 //!
 //! The first lockbox format is for `LockId`-recipient lockboxes. It consists of the version 
-//! byte, a byte set to 0x01, the encoded `LockId`, an ephemeral X25519 public key (without a 
-//! version byte), a 24-byte nonce, the ciphertext, and the 16-byte Poly1305 authentication tag.
+//! byte, a byte set to the lockbox type, the encoded `LockId`, an ephemeral X25519 public key 
+//! (without a version byte), a 24-byte nonce, the ciphertext, and the 16-byte Poly1305 
+//! authentication tag.
 //!
 //! The second lockbox format is for `StreamKey`-recipient lockboxes. It consists of the version 
-//! byte, a byte set to 0x02, the encoded `StreamId`, a 24-byte nonce, the ciphertext, and the 
-//! 16-byte Poly1305 authentication tag.
+//! byte, a byte set to the lockbox type, the encoded `StreamId`, a 24-byte nonce, the ciphertext, 
+//! and the 16-byte Poly1305 authentication tag.
 //!
 //! ```text
 //! +----------+----------+==========+==========+==========+==============+=====+
-//! | Version  |   0x01   | SignKey  |  EphKey  |  Nonce   |  Ciphertext  | Tag |
+//! | Version  |   Type   | SignKey  |  EphKey  |  Nonce   |  Ciphertext  | Tag |
 //! +----------+----------+==========+==========+==========+==============+=====+
 //! 
 //! +----------+----------+==========+==========+==============+=====+
-//! | Version  |   0x02   | StreamId |  Nonce   |  Ciphertext  | Tag |
+//! | Version  |   Type   | StreamId |  Nonce   |  Ciphertext  | Tag |
 //! +----------+----------+==========+==========+==============+=====+
 //! 
 //! - SignKey is a LockId. This is a version byte followed by a 32-byte X25519 public key
@@ -63,8 +84,54 @@ use std::{convert::TryFrom, fmt};
 pub(crate) const V1_LOCKBOX_NONCE_SIZE: usize = 24;
 pub(crate) const V1_LOCKBOX_TAG_SIZE: usize = 16;
 
-pub const LOCKBOX_TYPE_LOCK: u8 = 1;
-pub const LOCKBOX_TYPE_STREAM: u8 = 2;
+pub const LOCKBOX_TYPE_IDENTITY: u8 = 0;
+pub const LOCKBOX_TYPE_STREAM  : u8 = 2;
+pub const LOCKBOX_TYPE_LOCK    : u8 = 4;
+pub const LOCKBOX_TYPE_DATA    : u8 = 6;
+pub const LOCKBOX_RECIPIENT_IS_STREAM: u8 = 1;
+
+pub enum LockboxType {
+    Identity(bool),
+    Stream(bool),
+    Lock(bool),
+    Data(bool),
+}
+
+
+impl LockboxType {
+    pub fn as_u8(&self) -> u8 {
+        use LockboxType::*;
+        let (v, t) = match self {
+            Identity(t) => (0, *t),
+            Stream(t)   => (2, *t),
+            Lock(t)     => (4, *t),
+            Data(t)     => (6, *t),
+        };
+        if t { v | 0x1 } else { v }
+    }
+
+    pub fn from_u8(v: u8) -> Result<Self,CryptoError> {
+        use LockboxType::*;
+        let t = (v & 0x1) != 0;
+        match v & 0xFE {
+            0 => Ok(Identity(t)),
+            2 => Ok(Stream(t)),
+            4 => Ok(Lock(t)),
+            6 => Ok(Data(t)),
+            _ => Err(CryptoError::BadFormat("Lockbox type field wasn't valid")),
+        }
+    }
+
+    pub fn is_for_stream(&self) -> bool {
+        use LockboxType::*;
+        match self {
+            Identity(t) => *t,
+            Stream(t)   => *t,
+            Lock(t)     => *t,
+            Data(t)     => *t,
+        }
+    }
+}
 
 /// Get expected size of a Lockbox's nonce for a given version. Version *must* be validated before
 /// calling this.
@@ -106,7 +173,13 @@ impl LockLockbox {
 impl TryFrom<&[u8]> for LockLockbox {
     type Error = CryptoError;
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        Ok(Self(Lockbox::try_from(value)?))
+        let (x, boxtype) = Lockbox::decode(value)?;
+        if let LockboxType::Lock(_) = boxtype {
+            Ok(Self(x))
+        }
+        else {
+            Err(CryptoError::BadFormat("Didn't find a lock lockbox"))
+        }
     }
 }
 
@@ -138,7 +211,13 @@ impl IdentityLockbox {
 impl TryFrom<&[u8]> for IdentityLockbox {
     type Error = CryptoError;
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        Ok(Self(Lockbox::try_from(value)?))
+        let (x, boxtype) = Lockbox::decode(value)?;
+        if let LockboxType::Identity(_) = boxtype {
+            Ok(Self(x))
+        }
+        else {
+            Err(CryptoError::BadFormat("Didn't find a identity lockbox"))
+        }
     }
 }
 
@@ -170,7 +249,13 @@ impl StreamLockbox {
 impl TryFrom<&[u8]> for StreamLockbox {
     type Error = CryptoError;
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        Ok(Self(Lockbox::try_from(value)?))
+        let (x, boxtype) = Lockbox::decode(value)?;
+        if let LockboxType::Stream(_) = boxtype {
+            Ok(Self(x))
+        }
+        else {
+            Err(CryptoError::BadFormat("Didn't find a stream lockbox"))
+        }
     }
 }
 
@@ -204,9 +289,13 @@ impl DataLockbox {
 impl TryFrom<&[u8]> for DataLockbox {
     type Error = CryptoError;
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        //Ok(Self(Lockbox::try_from(value)?))
-        let x = Self(Lockbox::try_from(value)?);
-        Ok(x)
+        let (x, boxtype) = Lockbox::decode(value)?;
+        if let LockboxType::Data(_) = boxtype {
+            Ok(Self(x))
+        }
+        else {
+            Err(CryptoError::BadFormat("Didn't find a data lockbox"))
+        }
     }
 }
 
@@ -268,15 +357,13 @@ impl Lockbox {
         &self.recipient
     }
 
+    /// Provide the encoded lockbox as a byte slice.
     fn as_bytes(&self) -> &[u8] {
         self.inner.as_slice()
     }
-}
 
-impl TryFrom<&[u8]> for Lockbox {
-    type Error = CryptoError;
-
-    fn try_from(raw: &[u8]) -> Result<Self, Self::Error> {
+    /// Attempt to decode a lockbox & produce both the resulting lockbox and the lockbox type byte.
+    fn decode(raw: &[u8]) -> Result<(Self, LockboxType), CryptoError> {
         let (&version, parse) = raw.split_first().ok_or(CryptoError::BadLength {
             step: "get lockbox version",
             expected: 1,
@@ -290,62 +377,61 @@ impl TryFrom<&[u8]> for Lockbox {
             expected: 1,
             actual: 0,
         })?;
-        match boxtype {
-            LOCKBOX_TYPE_LOCK => {
-                let id_version = *parse.first().ok_or(CryptoError::BadLength {
-                    step: "get LockId version for lockbox",
-                    expected: 1,
-                    actual: 0,
+        let boxtype = LockboxType::from_u8(boxtype)?;
+        if boxtype.is_for_stream() {
+            // Check the length. Must be at least long enough to hold the StreamId, Nonce, and 
+            // Tag. It is acceptable (if a bit silly) for the actual ciphertext to be of length 
+            // 0.
+            let id_len = stream_id_size(version);
+            let nonce_len = lockbox_nonce_size(version);
+            let tag_len = lockbox_tag_size(version);
+            if parse.len() < (id_len + nonce_len + tag_len) {
+                return Err(CryptoError::BadLength {
+                    step: "get lockbox component lengths",
+                    expected: id_len + nonce_len + tag_len,
+                    actual: parse.len(),
                 })?;
-                let id_len = lock_id_size(id_version);
-                let eph_len = lock_eph_size(id_version);
-                let nonce_len = lockbox_nonce_size(version);
-                let tag_len = lockbox_tag_size(version);
-                if parse.len() < (id_len + eph_len + nonce_len + tag_len) {
-                    return Err(CryptoError::BadLength {
-                        step: "get lockbox component lengths",
-                        expected: id_len + eph_len + nonce_len + tag_len,
-                        actual: parse.len(),
-                    })?;
-                }
-                // Extract the LockId
-                let (raw_id, _) = parse.split_at(id_len);
-                let id = LockId::try_from(raw_id)?;
-                Ok(Self {
-                    recipient: LockboxRecipient::LockId(id),
-                    inner: Vec::from(raw),
-                })
             }
-            LOCKBOX_TYPE_STREAM => {
-                // Check the length. Must be at least long enough to hold the StreamId, Nonce, and 
-                // Tag. It is acceptable (if a bit silly) for the actual ciphertext to be of length 
-                // 0.
-                let id_len = stream_id_size(version);
-                let nonce_len = lockbox_nonce_size(version);
-                let tag_len = lockbox_tag_size(version);
-                if parse.len() < (id_len + nonce_len + tag_len) {
-                    return Err(CryptoError::BadLength {
-                        step: "get lockbox component lengths",
-                        expected: id_len + nonce_len + tag_len,
-                        actual: parse.len(),
-                    })?;
-                }
-                // Extract the StreamId
-                let (raw_id, _) = parse.split_at(id_len);
-                let id = StreamId::try_from(raw_id)?;
-                // Compare the StreamId & version byte. We can't use stream keys that differ from
-                // the lockbox version because they're supposed to literally be the same algorithm!
-                if id.version() != version {
-                    return Err(CryptoError::BadFormat);
-                }
-                Ok(Self {
-                    recipient: LockboxRecipient::StreamId(id),
-                    inner: Vec::from(raw),
-                })
+            // Extract the StreamId
+            let (raw_id, _) = parse.split_at(id_len);
+            let id = StreamId::try_from(raw_id)?;
+            // Compare the StreamId & version byte. We can't use stream keys that differ from
+            // the lockbox version because they're supposed to literally be the same algorithm!
+            if id.version() != version {
+                return Err(CryptoError::BadFormat("Lockbox version didn't match Stream Id version"));
             }
-            _ => return Err(CryptoError::BadFormat),
+            Ok((Self {
+                recipient: LockboxRecipient::StreamId(id),
+                inner: Vec::from(raw),
+            }, boxtype))
+        }
+        else {
+            let id_version = *parse.first().ok_or(CryptoError::BadLength {
+                step: "get LockId version for lockbox",
+                expected: 1,
+                actual: 0,
+            })?;
+            let id_len = lock_id_size(id_version);
+            let eph_len = lock_eph_size(id_version);
+            let nonce_len = lockbox_nonce_size(version);
+            let tag_len = lockbox_tag_size(version);
+            if parse.len() < (id_len + eph_len + nonce_len + tag_len) {
+                return Err(CryptoError::BadLength {
+                    step: "get lockbox component lengths",
+                    expected: id_len + eph_len + nonce_len + tag_len,
+                    actual: parse.len(),
+                })?;
+            }
+            // Extract the LockId
+            let (raw_id, _) = parse.split_at(id_len);
+            let id = LockId::try_from(raw_id)?;
+            Ok((Self {
+                recipient: LockboxRecipient::LockId(id),
+                inner: Vec::from(raw),
+            }, boxtype))
         }
     }
+
 }
 
 impl fmt::Debug for Lockbox {
