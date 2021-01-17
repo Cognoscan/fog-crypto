@@ -179,7 +179,7 @@ pub trait LockInterface {
     ) -> Option<LockLockbox>;
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct LockId {
     inner: x25519_dalek::PublicKey
 }

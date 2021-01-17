@@ -235,10 +235,10 @@ impl TryFrom<&[u8]> for Identity {
         if version != 1u8 {
             return Err(CryptoError::UnsupportedVersion(version));
         }
-        if data.len() != ed25519_dalek::PUBLIC_KEY_LENGTH {
+        if data.len() != V1_IDENTITY_ID_SIZE {
             return Err(CryptoError::BadLength{
                 step: "get Identity public key",
-                expected: ed25519_dalek::PUBLIC_KEY_LENGTH,
+                expected: V1_IDENTITY_ID_SIZE,
                 actual: data.len()
             });
         }
@@ -278,6 +278,13 @@ impl fmt::UpperHex for Identity {
             write!(f, "{:X}", byte)?;
         }
         Ok(())
+    }
+}
+
+impl std::hash::Hash for Identity {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        1u8.hash(state);
+        self.id.as_bytes().hash(state);
     }
 }
 
@@ -481,7 +488,7 @@ impl Signature {
 
     /// The length of the signature, in bytes, when encoded.
     pub fn len(&self) -> usize {
-        1 + ed25519_dalek::SIGNATURE_LENGTH + self.id.len()
+        1 + V1_IDENTITY_SIGN_SIZE + self.id.len()
     }
 
 }
@@ -591,13 +598,13 @@ impl TryFrom<&[u8]> for UnverifiedSignature {
             return Err(CryptoError::UnsupportedVersion(id_version));
         }
         
-        let id_len = ed25519_dalek::PUBLIC_KEY_LENGTH;
+        let id_len = V1_IDENTITY_ID_SIZE;
         let raw_id = data.get(0..id_len)
             .ok_or(CryptoError::BadLength { step: "get signature signer", expected: id_len, actual: data.len() })?;
         let raw_signature = data.get(id_len..)
             .ok_or(CryptoError::BadLength {
                 step: "get signature data",
-                expected: ed25519_dalek::SIGNATURE_LENGTH,
+                expected: V1_IDENTITY_SIGN_SIZE,
                 actual: data.len() - id_len
             })?;
         let id = ed25519_dalek::PublicKey::from_bytes(raw_id)
@@ -615,6 +622,62 @@ impl TryFrom<&[u8]> for UnverifiedSignature {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn basics() {
+        let mut csprng = rand::rngs::OsRng;
+        let key = IdentityKey::new_temp(&mut csprng);
+        assert_eq!(key.version(), DEFAULT_SIGN_VERSION);
+        let key = IdentityKey::new_temp_with_version(&mut csprng, DEFAULT_SIGN_VERSION).unwrap();
+        assert_eq!(key.version(), DEFAULT_SIGN_VERSION);
+        let result = IdentityKey::new_temp_with_version(&mut csprng, 99u8);
+        if let Err(CryptoError::UnsupportedVersion(99u8)) = result {} else {
+            panic!("Didn't get expected error on new_temp_with_version");
+        }
+    }
+
+    #[test]
+    fn display() {
+        let mut csprng = rand::rngs::OsRng;
+        let key = IdentityKey::new_temp(&mut csprng);
+        let disp_key = format!("{}", &key);
+        let disp_id = format!("{}", key.id());
+        let base58 = key.id().to_base58();
+        assert_eq!(disp_key, disp_id);
+        assert_eq!(disp_key, base58);
+        assert!(disp_key.len() > 1);
+    }
+
+    #[test]
+    fn base58() {
+        let mut csprng = rand::rngs::OsRng;
+        let key = IdentityKey::new_temp(&mut csprng);
+        let mut base58 = key.id().to_base58();
+        assert!(base58.len() > 1);
+        let id = Identity::from_base58(&base58).unwrap();
+        assert_eq!(&id, key.id());
+        base58.push('a');
+        base58.push('a');
+        assert!(Identity::from_base58(&base58).is_err());
+        base58.pop();
+        base58.pop();
+        base58.pop();
+        assert!(Identity::from_base58(&base58).is_err());
+    }
+
+    #[test]
+    fn encode() {
+        let mut csprng = rand::rngs::OsRng;
+        let key = IdentityKey::new_temp(&mut csprng);
+        let id = key.id();
+        let id_v0 = id.as_vec();
+        let mut id_v1 = Vec::new();
+        id.encode_vec(&mut id_v1);
+        assert_eq!(id_v0.len(), id.len());
+        assert_eq!(id_v0, id_v1);
+        let id = Identity::try_from(&id_v0[..]).unwrap();
+        assert_eq!(&id, key.id());
+    }
 
     #[test]
     fn id_len() {

@@ -58,12 +58,6 @@ pub(crate) fn stream_id_size(_version: u8) -> usize {
     1+V1_STREAM_ID_SIZE
 }
 
-/// Get expected size of a StreamKey for a given version. Version *must* be validated before calling 
-/// this.
-pub(crate) fn stream_key_size(_version: u8) -> usize {
-    1+V1_STREAM_KEY_SIZE
-}
-
 /// Stream Key that allows encrypting data into a `Lockbox`. This acts as a wrapper for a specific 
 /// cryptographic symmetric key, which can only be used with the corresponding symmetric encryption 
 /// algorithm. The underlying key may be located in a hardware module or some other private 
@@ -295,7 +289,7 @@ impl ContainedStreamKey {
         let mut key = [0; V1_STREAM_KEY_SIZE];
         csprng.fill_bytes(&mut key);
 
-        let mut new = Self {
+        let new = Self {
             key,
             id: stream_id_from_key(version, &key)
         };
@@ -404,7 +398,7 @@ impl StreamInterface for ContainedStreamKey {
         let version = id.version();
         let tag_len = lockbox_tag_size(version);
         let nonce_len = lockbox_nonce_size(version);
-        let header_len = 2 + id.as_bytes().len();
+        let header_len = 2 + id.len();
         let len = header_len + nonce_len + content.len() + tag_len;
         let mut lockbox: Vec<u8> = Vec::with_capacity(len);
         let mut nonce = [0u8; crate::lockbox::V1_LOCKBOX_NONCE_SIZE];
@@ -413,7 +407,7 @@ impl StreamInterface for ContainedStreamKey {
         // Lockbox header & data
         lockbox.push(version);
         lockbox.push(LOCKBOX_TYPE_STREAM);
-        lockbox.extend_from_slice(id.as_bytes());
+        id.encode_vec(&mut lockbox);
         lockbox.extend_from_slice(nonce.as_ref());
         lockbox.extend_from_slice(content);
 
@@ -511,7 +505,7 @@ impl StreamInterface for ContainedStreamKey {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct StreamId {
     inner: Vec<u8>
 }
@@ -526,19 +520,24 @@ impl StreamId {
         &self.inner[1..]
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.inner
-    }
-
     /// Convert into a base58-encoded StreamId.
     pub fn to_base58(&self) -> String {
-        bs58::encode(self.as_bytes()).into_string()
+        bs58::encode(&self.inner).into_string()
     }
 
     /// Attempt to parse a base58-encoded StreamId.
     pub fn from_base58(s: &str) -> Result<Self, CryptoError> {
         let raw = bs58::decode(s).into_vec().or(Err(CryptoError::BadFormat))?;
         Self::try_from(&raw[..])
+    }
+
+    pub fn encode_vec(&self, buf: &mut Vec<u8>) {
+        buf.reserve(self.len());
+        buf.extend_from_slice(&self.inner);
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
     }
 
 }
@@ -579,7 +578,7 @@ impl fmt::Display for StreamId {
 
 impl fmt::LowerHex for StreamId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for byte in self.as_bytes().iter() {
+        for byte in self.inner.iter() {
             write!(f, "{:x}", byte)?;
         }
         Ok(())
@@ -588,7 +587,7 @@ impl fmt::LowerHex for StreamId {
 
 impl fmt::UpperHex for StreamId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for byte in self.as_bytes().iter() {
+        for byte in self.inner.iter() {
             write!(f, "{:X}", byte)?;
         }
         Ok(())
@@ -599,6 +598,60 @@ impl fmt::UpperHex for StreamId {
 mod tests {
     use super::*;
     use crate::lockbox::LockboxRecipient;
+
+    #[test]
+    fn basics() {
+        let mut csprng = rand::rngs::OsRng;
+        let key = StreamKey::new_temp(&mut csprng);
+        assert_eq!(key.version(), DEFAULT_STREAM_VERSION);
+        let key = StreamKey::new_temp_with_version(&mut csprng, DEFAULT_STREAM_VERSION).unwrap();
+        assert_eq!(key.version(), DEFAULT_STREAM_VERSION);
+        let result = StreamKey::new_temp_with_version(&mut csprng, 99u8);
+        if let Err(CryptoError::UnsupportedVersion(99u8)) = result {} else {
+            panic!("Didn't get expected error on new_temp_with_version");
+        }
+    }
+
+    #[test]
+    fn display() {
+        let mut csprng = rand::rngs::OsRng;
+        let key = StreamKey::new_temp(&mut csprng);
+        let disp_key = format!("{}", &key);
+        let disp_id = format!("{}", key.id());
+        let base58 = key.id().to_base58();
+        assert_eq!(disp_key, disp_id);
+        assert_eq!(disp_key, base58);
+        assert!(disp_key.len() > 1);
+    }
+
+    #[test]
+    fn base58() {
+        let mut csprng = rand::rngs::OsRng;
+        let key = StreamKey::new_temp(&mut csprng);
+        let mut base58 = key.id().to_base58();
+        assert!(base58.len() > 1);
+        let id = StreamId::from_base58(&base58).unwrap();
+        assert_eq!(&id, key.id());
+        base58.push('a');
+        base58.push('a');
+        assert!(StreamId::from_base58(&base58).is_err());
+        base58.pop();
+        base58.pop();
+        base58.pop();
+        assert!(StreamId::from_base58(&base58).is_err());
+    }
+
+    #[test]
+    fn encode() {
+        let mut csprng = rand::rngs::OsRng;
+        let key = StreamKey::new_temp(&mut csprng);
+        let id = key.id();
+        let mut id_vec = Vec::new();
+        id.encode_vec(&mut id_vec);
+        assert_eq!(id_vec.len(), id.len());
+        let id = StreamId::try_from(&id_vec[..]).unwrap();
+        assert_eq!(&id, key.id());
+    }
 
     #[test]
     fn stream_lock_data() {

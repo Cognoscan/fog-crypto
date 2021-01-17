@@ -53,10 +53,9 @@
 //!
 
 use crate::{
-    lock::{LockId, LockKey, lock_id_size, lock_eph_size},
-    identity::IdentityKey,
-    stream::{stream_id_size, StreamId, StreamKey, MAX_STREAM_VERSION, MIN_STREAM_VERSION},
-    CryptoError, Vault,
+    lock::{LockId, lock_id_size, lock_eph_size},
+    stream::{stream_id_size, StreamId, MAX_STREAM_VERSION, MIN_STREAM_VERSION},
+    CryptoError
 };
 
 use std::{convert::TryFrom, fmt};
@@ -346,6 +345,17 @@ impl TryFrom<&[u8]> for Lockbox {
             }
             _ => return Err(CryptoError::BadFormat),
         }
+    }
+}
+
+impl fmt::Debug for Lockbox {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let parts = self.as_parts();
+        f.debug_struct("Lockbox")
+            .field("version", &self.version())
+            .field("recipient", &self.recipient)
+            .field("cipertext_len", &parts.ciphertext.len())
+            .finish()
     }
 }
 

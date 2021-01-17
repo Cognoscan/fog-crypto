@@ -53,7 +53,6 @@ mod error;
 pub use self::error::CryptoError;
 
 pub mod hash;
-use hash::*;
 
 pub mod identity;
 use identity::*;

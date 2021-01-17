@@ -209,6 +209,11 @@ impl HashState {
         Ok(HashState { state })
     }
 
+    /// Get the version of hash that this hasher will produce on completion.
+    pub fn version(&self) -> u8 {
+        1u8
+    }
+
     /// Update the hasher with new input data.
     pub fn update(&mut self, data: impl AsRef<[u8]>) {
         self.state.update(data);
@@ -236,7 +241,9 @@ impl Default for HashState {
 
 impl fmt::Debug for HashState {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(formatter, "{} {{ version: {:?} }}", stringify!(HashState), 1)
+        formatter.debug_struct("HashState")
+            .field("version", &self.version())
+            .finish()
     }
 }
 
