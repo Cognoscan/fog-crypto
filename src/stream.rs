@@ -629,6 +629,20 @@ mod tests {
     }
 
     #[test]
+    fn id_sanity_check() {
+        // Just make sure the ID & Key aren't somehow the same
+        // I cannot imagine screwing up the code enough for this to happen, but just in case...
+        let mut csprng = rand::rngs::OsRng;
+        let key = ContainedStreamKey::generate(&mut csprng);
+        let id = key.id();
+        let mut enc_key = Vec::new();
+        let mut enc_id = Vec::new();
+        key.encode_vec(&mut enc_key);
+        id.encode_vec(&mut enc_id);
+        assert_ne!(enc_id, enc_key);
+    }
+
+    #[test]
     fn base58() {
         let mut csprng = rand::rngs::OsRng;
         let key = StreamKey::new_temp(&mut csprng);

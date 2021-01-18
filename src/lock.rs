@@ -1,6 +1,38 @@
 //! Public-Key encryption.
 //!
+//! This module lets you create a [`LockKey`] (a private key), which comes with a corresponding 
+//! [`LockId`] (the public key). The `LockId` can be used to encrypt data and export keys, while 
+//! the `LockKey` can decrypt those keys and data.
 //!
+//! All `LockKey` structs are backed by some struct that implements the [`LockInterface`] trait; 
+//! this can be an in-memory private key, an interface to an OS-managed keystore, an interface to a 
+//! hardware security module, or something else.
+//!
+//! # Example
+//!
+//! ```
+//! # use std::convert::TryFrom;
+//! # use fog_crypto::lock::*;
+//! # use fog_crypto::lockbox::*;
+//!
+//! // Make a new temporary key
+//! let mut csprng = rand::rngs::OsRng {};
+//! let key = LockKey::new_temp(&mut csprng);
+//! let id = key.id().clone();
+//!
+//! println!("LockId(Base58): {}", key.id());
+//!
+//! // Encrypt some data and turn it into a byte vector
+//! let data = b"I am sensitive information, about to be encrypted";
+//! let lockbox = id.encrypt_data(&mut csprng, data.as_ref());
+//! let mut encoded = Vec::new();
+//! encoded.extend_from_slice(lockbox.as_bytes());
+//!
+//! // Decrypt that data
+//! let dec_lockbox = DataLockbox::try_from(encoded.as_ref()).unwrap();
+//! let dec_data = key.decrypt_data(&dec_lockbox).unwrap();
+//! assert_eq!(&data[..], &dec_data[..]);
+//! ```
 
 use crate::{
     identity::{IdentityKey, ContainedIdKey, new_identity_key},
@@ -20,8 +52,13 @@ use std::{
     convert::TryFrom
 };
 
+/// Default public-key encryption algorithm version.
 pub const DEFAULT_LOCK_VERSION: u8 = 1;
+
+/// Minimum accepted public-key encryption algorithm version.
 pub const MIN_LOCK_VERSION: u8 = 1;
+
+/// Maximum accepted public-key encryption algorithm version.
 pub const MAX_LOCK_VERSION: u8 = 1;
 
 const V1_LOCK_ID_SIZE: usize = 32; // Size of public key
@@ -35,6 +72,34 @@ pub(crate) fn lock_eph_size(_version: u8) -> usize {
     V1_LOCK_ID_SIZE
 }
 
+/// A key that allows decrypting data meant for a particular [`LockId`].
+///
+/// This acts as a wrapper for a specific cryptographic private decryption key,
+///
+/// # Example
+/// ```
+/// # use std::convert::TryFrom;
+/// # use fog_crypto::lock::*;
+/// # use fog_crypto::lockbox::*;
+///
+/// // Make a new temporary key
+/// let mut csprng = rand::rngs::OsRng {};
+/// let key = LockKey::new_temp(&mut csprng);
+/// let id = key.id().clone();
+/// println!("LockId(Base58): {}", key.id());
+///
+/// // ...
+/// // Wait for encrypted data to show up
+/// // ...
+/// # let data = b"I am sensitive information, about to be encrypted";
+/// # let lockbox = id.encrypt_data(&mut csprng, data.as_ref());
+/// # let mut received = Vec::new();
+/// # received.extend_from_slice(lockbox.as_bytes());
+///
+/// // Decrypt Some received data
+/// let lockbox = DataLockbox::try_from(received.as_ref()).unwrap();
+/// let data = key.decrypt_data(&lockbox).unwrap();
+/// ```
 #[derive(Clone)]
 pub struct LockKey {
     interface: Arc<dyn LockInterface>,
@@ -145,36 +210,50 @@ pub fn new_lock_key(interface: Arc<dyn LockInterface>) -> LockKey {
     }
 }
 
+/// A decryption interface, implemented by anything that can hold a private cryptographic 
+/// decryption key.
+///
+/// An implementor must handle all supported Diffie-Hellman algorithms and symmetric-key encryption 
+/// algorithms.
 pub trait LockInterface {
 
+    /// Get the corresponding `LockId` for the private key.
     fn id(&self) -> &LockId;
 
+    /// Decrypt an exported `LockKey`.
     fn decrypt_lock_key(
         &self,
         lockbox: &LockLockbox,
     ) -> Result<LockKey, CryptoError>;
 
+    /// Decrypt an exported `IdentityKey`.
     fn decrypt_identity_key(
         &self,
         lockbox: &IdentityLockbox,
     ) -> Result<IdentityKey, CryptoError>;
 
+    /// Decrypt an exported `StreamKey`.
     fn decrypt_stream_key(
         &self,
         lockbox: &StreamLockbox,
     ) -> Result<StreamKey, CryptoError>;
 
+    /// Decrypt encrypted data.
     fn decrypt_data(
         &self,
         lockbox: &DataLockbox
     ) -> Result<Vec<u8>, CryptoError>;
 
+    /// Export the decryption key in a `LockLockbox`, with `receive_lock` as the recipient. If the 
+    /// key cannot be exported, this should return None.
     fn self_export_lock(
         &self,
         csprng: &mut dyn CryptoSrc,
         receive_lock: &LockId
     ) -> Option<LockLockbox>;
 
+    /// Export the decryption key in a `LockLockbox`, with `receive_stream` as the recipient. If the 
+    /// key cannot be exported, this should return None.
     fn self_export_stream(
         &self,
         csprng: &mut dyn CryptoSrc,
@@ -182,6 +261,29 @@ pub trait LockInterface {
     ) -> Option<LockLockbox>;
 }
 
+/// An identifier for a corresponding [`LockKey`] that can be used to encrypt data for that key.
+///
+/// This contains a cryptographic public encryption key.
+///
+/// # Example
+/// ```
+/// # use fog_crypto::lock::*;
+/// # use fog_crypto::lockbox::*;
+/// # let mut csprng = rand::rngs::OsRng {};
+/// # let key = LockKey::new_temp(&mut csprng);
+/// # let id = key.id().clone();
+///
+/// // We've been given a LockId that we're sending encrypted data to.
+/// println!("LockId(Base58): {}", key.id());
+///
+/// // Encrypt some data for that LockId
+/// let data = b"I am sensitive information, about to be encrypted";
+/// let lockbox = id.encrypt_data(&mut csprng, data.as_ref());
+///
+/// // The lockbox can be encoded onto a vec or used as raw bytes.
+/// let mut to_send = Vec::new();
+/// to_send.extend_from_slice(lockbox.as_bytes());
+/// ```
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct LockId {
     inner: x25519_dalek::PublicKey
@@ -311,9 +413,10 @@ impl fmt::UpperHex for LockId {
 
 /// Encrypt data with a `LockId`, returning a raw byte vector. Implementors of 
 /// [`SignInterface`][SignInterface], [`StreamInterface`][StreamInterface], [`LockInterface`] can 
-/// use this when exporting keys. It's not inside the regular `LockId` methods because those are 
-/// meant for users, which should not use this function and instead rely on the various `export...` 
-/// and `encrypt_data` functions.
+/// use this when exporting keys.
+///
+/// It's not inside the regular `LockId` methods because those are meant for users, which should 
+/// not use this function and instead rely on the various `export...` and `encrypt_data` functions.
 ///
 /// [StreamInterface]: crate::stream::StreamInterface
 /// [SignInterface]: crate::identity::SignInterface
@@ -367,18 +470,24 @@ pub fn lock_id_encrypt(
     lockbox
 }
 
+/// A self-contained implementor of `LockInterface`. It's expected this will be used unless the 
+/// decryption key is being managed by the OS or a hardware module.
 pub struct ContainedLockKey {
     id: LockId,
     key: x25519_dalek::StaticSecret
 }
 
 impl ContainedLockKey {
+
+    /// Generate a new key given a cryptographic random number generator.
     pub fn generate<R>(csprng: &mut R) -> Self
         where R: CryptoRng + RngCore
     {
        Self::with_version(csprng, DEFAULT_LOCK_VERSION).unwrap()
     }
 
+    /// Generate a new key with a specific version, given a cryptographic random number generator. 
+    /// Fails if the version isn't supported.
     pub fn with_version<R>(csprng: &mut R, version: u8) -> Result<Self, CryptoError>
         where R: CryptoRng + RngCore
     {
@@ -407,6 +516,8 @@ impl ContainedLockKey {
         raw_key.zeroize();
     }
 
+    /// Decrypt a lockbox's individual parts. This is only used by the `LockInterface` 
+    /// implementation.
     fn decrypt_parts(&self, recipient: &LockboxRecipient, parts: LockboxParts) -> Result<Vec<u8>, CryptoError> {
         // Verify this is the right key for this lockbox. It costs us little to do this, and saves 
         // us from potential logic errors

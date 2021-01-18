@@ -5,7 +5,7 @@
 //! [`Identity`], which may be freely shared. A `Signature` may be provided separate from the data 
 //! or alongside it, and always includes the `Identity` of the signer.
 //! 
-//! All `IdentityKey` structs are backed by some struct that implements the `SignInterface` trait; 
+//! All `IdentityKey` structs are backed by some struct that implements the [`SignInterface`] trait; 
 //! this can be an in-memory private key, an interface to an OS-managed keystore, an interface to a 
 //! hardware security module, or something else.
 //! 
@@ -15,9 +15,10 @@
 //! # use fog_crypto::identity::*;
 //! # use fog_crypto::hash::Hash;
 //! # use std::convert::TryFrom;
-//! # use std::sync::Arc;
-//! # let mut csprng = rand::rngs::OsRng {};
-//! # let key = IdentityKey::new_temp(&mut csprng);
+//!
+//! // Make a new temporary key
+//! let mut csprng = rand::rngs::OsRng {};
+//! let key = IdentityKey::new_temp(&mut csprng);
 //! 
 //! println!("Identity(Base58): {}", key.id());
 //! 
@@ -62,8 +63,13 @@ use std::{
     sync::Arc,
 };
 
+/// Default signature algorithm version.
 pub const DEFAULT_SIGN_VERSION: u8 = 1;
+
+/// Minimum accepted signature algorithm version.
 pub const MIN_SIGN_VERSION: u8 = 1;
+
+/// Maximum accepted signature algorithm version.
 pub const MAX_SIGN_VERSION: u8 = 1;
 
 const V1_IDENTITY_KEY_SIZE : usize = ed25519_dalek::SECRET_KEY_LENGTH;
@@ -71,15 +77,34 @@ const V1_IDENTITY_ID_SIZE  : usize = ed25519_dalek::PUBLIC_KEY_LENGTH;
 const V1_IDENTITY_SIGN_SIZE: usize = ed25519_dalek::SIGNATURE_LENGTH;
 
 
-/// Identity Key that allows signing hashes as a given Identity. This acts as a wrapper for a 
-/// specific cryptographic private key, and it is only be used for a specific corresponding 
-/// signature algorithm. The underlying private key may be located in a hardware module or some 
-/// other private keystore; in this case, it may be impossible to export the key.
+/// Identity Key that allows signing hashes as a given Identity.
+///
+/// This acts as a wrapper for a specific cryptographic private key, and it is only be used for a 
+/// specific corresponding signature algorithm. The underlying private key may be located in a 
+/// hardware module or some other private keystore; in this case, it may be impossible to export 
+/// the key.
+///
+/// # Example
+///
+/// ```
+/// # use fog_crypto::identity::*;
+/// # use fog_crypto::hash::Hash;
+/// # use std::convert::TryFrom;
+///
+/// // Make a new temporary key
+/// let mut csprng = rand::rngs::OsRng {};
+/// let key = IdentityKey::new_temp(&mut csprng);
+/// 
+/// // Sign some data with it
+/// let hash = Hash::new(b"I am data, about to be signed");
+/// let signature = key.sign(&hash);
+/// 
+/// ```
 #[derive(Clone)]
 pub struct IdentityKey {
     /// The interface to the actual private key for signing. We wrap it in a Arc to avoid having it 
     /// in more than one place in memory. Yes, that fact doesn't matter for keys located on hardware 
-    /// or in the OS, but it's a property that crypto libraries (namely ed25519_dalek) want to 
+    /// or in the OS, but it's a property that some crypto libraries (namely ed25519_dalek) want to 
     /// encourage.
     interface: Arc<dyn SignInterface>
 }
@@ -113,13 +138,12 @@ impl IdentityKey {
         self.interface.id()
     }
 
-    /// Sign a hash. Panics if an empty hash is provided. Signing should be fast and always 
-    /// succeed.
+    /// Sign a hash. Signing should be fast and always succeed.
     pub fn sign(&self, hash: &Hash) -> Signature {
         self.interface.sign(hash)
     }
 
-    /// Pack this key into a `Lockbox`, meant for the recipient specified by `id`. Returns None if 
+    /// Pack this key into a `Lockbox`, meant for the recipient specified by `lock`. Returns None if 
     /// this key cannot be exported.
     pub fn export_for_lock<R: CryptoRng + RngCore>(
         &self,
@@ -167,9 +191,7 @@ pub fn new_identity_key(interface: Arc<dyn SignInterface>) -> IdentityKey {
 
 /// An Identity, wrapping a public signing key.
 ///
-/// The byte encoding is, in order:
-/// 1. The version byte
-/// 2. The raw public signing key bytes
+/// This is useful as an identifier of who has created a given signature.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Identity {
     id: ed25519_dalek::PublicKey,
@@ -286,10 +308,10 @@ impl std::hash::Hash for Identity {
     }
 }
 
-/// A Signature interface, implemented by anything that can hold a private cryptographic key. Must 
-/// implement all supported cryptographic signing algorithms. Each function is given a reference to 
-/// the `Identity` that will be used for signing, which may be optionally used for lookup if 
-/// needed.
+/// A Signature interface, implemented by anything that can hold a private cryptographic signing 
+/// key.
+///
+/// An implementor must handle all supported cryptographic signing algorithms.
 pub trait SignInterface {
 
     /// Get the corresponding `Identity` for the private key.
@@ -330,12 +352,16 @@ pub struct ContainedIdKey {
 }
 
 impl ContainedIdKey {
+
+    /// Generate a new key given a cryptographic random number generator.
     pub fn generate<R>(csprng: &mut R) -> Self
         where R: rand_core::CryptoRng + rand_core::RngCore
     {
        Self::with_version(csprng, DEFAULT_SIGN_VERSION).unwrap()
     }
 
+    /// Generate a new key with a specific version, given a cryptographic random number generator. 
+    /// Fails if the version isn't supported.
     pub fn with_version<R>(csprng: &mut R, version: u8) -> Result<Self, CryptoError>
         where R: rand_core::CryptoRng + rand_core::RngCore
     {
@@ -352,6 +378,8 @@ impl ContainedIdKey {
         })
     }
 
+    /// Encode the raw key, prepended with the version byte. The output vector must be either 
+    /// zeroized or encrypted before being dropped.
     pub fn encode_vec(&self, buf: &mut Vec<u8>) {
         buf.reserve(1+ed25519_dalek::SECRET_KEY_LENGTH);
         buf.push(1u8);
@@ -448,17 +476,19 @@ impl SignInterface for ContainedIdKey {
     }
 }
 
-/// An annotated cryptographic signature. Includes the version of hash that was signed, the 
-/// `Identity` of the signer, and the signature itself. These are always encoded together to make 
-/// it easier to verify signatures appended to a chunk of data.
+/// An annotated cryptographic signature.
 ///
-/// A signature can be constructed in one of two ways: calling `sign(...)` on an `IdentityKey`, 
-/// or by verifying an `UnverifiedSignature`.
+/// Includes the version of hash that was signed, the [`Identity`] of the signer, and the signature 
+/// itself. These are always encoded together to make it easier to verify signatures appended to a 
+/// chunk of data.
+///
+/// A signature can be constructed in one of two ways: calling `sign(...)` on an [`IdentityKey`], 
+/// or by verifying an [`UnverifiedSignature`].
 ///
 /// The byte encoding is specifically:
-/// 1. Hash version byte
-/// 2. The signing `Identity`, encoded
-/// 3. The cryptographic signature bytes
+/// 1. The Hash version byte
+/// 2. The encoded signing `Identity`
+/// 3. The cryptographic signature's raw bytes
 #[derive(Clone,Copy,PartialEq,Eq)]
 pub struct Signature {
     hash_version: u8,
@@ -468,11 +498,12 @@ pub struct Signature {
 
 impl Signature {
 
-    /// The version of the `Hash` used in signature computation.
+    /// The version of the [`struct@Hash`] used in signature computation.
     pub fn hash_version(&self) -> u8 {
         self.hash_version
     }
 
+    /// The public [`Identity`] of the [`IdentityKey`] that created this signature.
     pub fn signer(&self) -> &Identity {
         &self.id
     }
@@ -503,8 +534,10 @@ impl fmt::Debug for Signature {
     }
 }
 
-/// A signature that has been read from a byte slice but hasn't been verified yet. Verification can 
-/// be done by getting the appropriate version of hash into the `verify(...)` function.
+/// A signature that has been read from a byte slice but hasn't been verified yet.
+/// 
+/// Verification can be done by getting the appropriate version of hash into the `verify(...)` 
+/// function.
 ///
 /// # Example
 /// ```

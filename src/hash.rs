@@ -4,11 +4,6 @@
 //! be used to uniquely identify a data sequence. They can be passed to an 
 //! [`IdentityKey`](crate::identity::IdentityKey) to be signed.
 //!
-//! Optionally, you can also create a special "empty" hash value. The empty hash can be used in a 
-//! hash-based referencing scheme to refer to the containing document. It cannot be signed, and 
-//! should
-//!
-//!
 //! # Example
 //!
 //! ```
@@ -39,8 +34,13 @@ use blake2::{
 
 use subtle::{Choice, ConstantTimeEq};
 
+/// Default Hash algorithm version.
 pub const DEFAULT_HASH_VERSION: u8 = 1;
+
+/// Minimum accepted Hash algorithm version.
 pub const MIN_HASH_VERSION: u8 = 1;
+
+/// Maximum accepted Hash algorithm version.
 pub const MAX_HASH_VERSION: u8 = 1;
 
 const V1_DIGEST_SIZE: usize = 32;

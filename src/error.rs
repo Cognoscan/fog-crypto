@@ -23,6 +23,8 @@ pub enum CryptoError {
     ObjectMismatch(&'static str),
     /// Verification of a signature failed.
     SignatureFailed,
+    /// The attempted operation isn't supported by the backing Vault.
+    NotSupportedByVault,
 }
 
 use std::fmt;
@@ -40,11 +42,13 @@ impl fmt::Display for CryptoError {
             CryptoError::BadKey =>
                 write!(f, "Crypto key is weak or invalid"),
             CryptoError::BadFormat(s) =>
-                write!(f, "Format of data does not match speci: {}", s),
+                write!(f, "Format of data does not match spec: {}", s),
             CryptoError::ObjectMismatch(s) =>
                 write!(f, "Object mismatch: {}", s),
             CryptoError::SignatureFailed =>
                 write!(f, "Signature verification failed"),
+            CryptoError::NotSupportedByVault =>
+                write!(f, "Vault doesn't support this operation"),
         }
     }
 }
