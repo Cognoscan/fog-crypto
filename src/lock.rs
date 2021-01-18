@@ -1,3 +1,7 @@
+//! Public-Key encryption.
+//!
+//!
+
 use crate::{
     identity::{IdentityKey, ContainedIdKey, new_identity_key},
     lockbox::*,
@@ -106,9 +110,8 @@ impl LockKey {
     /// Export the private key in a `LockLockbox`, with `receive_stream` as the recipient. If 
     /// the key cannot be exported, this should return None. Additionally, if the underlying 
     /// implementation does not allow moving the raw key into memory (i.e. it cannot call
-    /// [`StreamInterface::encrypt`] or 
-    /// [`LockInterface::encrypt`](crate::lock::LockInterface::encrypt)) then None can also be 
-    /// returned.
+    /// [`StreamInterface::encrypt`](crate::stream::StreamInterface::encrypt) or 
+    /// [`lock_id_encrypt`](lock_id_encrypt)) then None can also be returned.
     pub fn export_for_stream<R: CryptoRng + RngCore>(
         &self,
         csprng: &mut R,
@@ -306,10 +309,14 @@ impl fmt::UpperHex for LockId {
     }
 }
 
-/// Encrypt data with a `LockId`, returning a raw byte vector. Implementors of [`SignInterface`], 
-/// [`StreamInterface`], [`LockInterface`] can use this when exporting keys. It's not inside the 
-/// regular `LockId` methods because those are meant for users, which should not use this 
-/// function and instead rely on the various `export...` and `encrypt_data` functions.
+/// Encrypt data with a `LockId`, returning a raw byte vector. Implementors of 
+/// [`SignInterface`][SignInterface], [`StreamInterface`][StreamInterface], [`LockInterface`] can 
+/// use this when exporting keys. It's not inside the regular `LockId` methods because those are 
+/// meant for users, which should not use this function and instead rely on the various `export...` 
+/// and `encrypt_data` functions.
+///
+/// [StreamInterface]: crate::stream::StreamInterface
+/// [SignInterface]: crate::identity::SignInterface
 pub fn lock_id_encrypt(
     id: &LockId,
     csprng: &mut dyn CryptoSrc,

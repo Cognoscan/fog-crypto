@@ -1,18 +1,18 @@
 //! Encrypted data.
 //!
 //! This submodule provides 4 different types of "lockboxes":
-//! - [`IdentityLockbox`]: Stores an [`IdentityKey`]
-//! - [`StreamLockbox`]: Stores a [`StreamKey`]
-//! - [`LockLockbox`]: Stores a [`LockKey`]
+//! - [`IdentityLockbox`]: Stores an [`IdentityKey`](crate::identity::IdentityKey)
+//! - [`StreamLockbox`]: Stores a [`StreamKey`](crate::stream::StreamKey)
+//! - [`LockLockbox`]: Stores a [`LockKey`](crate::lock::LockKey)
 //! - [`DataLockbox`]: Stores an arbitrary byte sequence
 //!
 //! Each lockbox is encoded in a similar way. The lockbox type should be known when attempting to 
 //! decode it, though if necessary it is also possible to determine the type through decoding.
 //! 
-//! A lockbox is created with a specific [`LockId`] or [`StreamKey`] as the intended recipient. 
-//! A `DataLockbox` can be created by calling the encrypt function on a `StreamKey` or `LockId`, 
-//! while the others can be created by calling the appropriate "export" function on the key to be 
-//! exported.
+//! A lockbox is created with a specific [`LockId`] or [`StreamKey`](crate::stream::StreamKey) as 
+//! the intended recipient.  A `DataLockbox` can be created by calling the encrypt function on a 
+//! `StreamKey` or `LockId`, while the others can be created by calling the appropriate "export" 
+//! function on the key to be exported.
 //!
 //! # Algorithms
 //!
@@ -83,12 +83,6 @@ use std::{convert::TryFrom, fmt};
 
 pub(crate) const V1_LOCKBOX_NONCE_SIZE: usize = 24;
 pub(crate) const V1_LOCKBOX_TAG_SIZE: usize = 16;
-
-pub const LOCKBOX_TYPE_IDENTITY: u8 = 0;
-pub const LOCKBOX_TYPE_STREAM  : u8 = 2;
-pub const LOCKBOX_TYPE_LOCK    : u8 = 4;
-pub const LOCKBOX_TYPE_DATA    : u8 = 6;
-pub const LOCKBOX_RECIPIENT_IS_STREAM: u8 = 1;
 
 pub enum LockboxType {
     Identity(bool),

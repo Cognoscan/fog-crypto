@@ -1,17 +1,16 @@
 //! Cryptographic signatures.
 //! 
-//! This module lets you create a signing [`IdentityKey`], which can be used to create a [`Signature`] 
-//! for a given [`Hash`](crate::hash::Hash). Each `IdentityKey` has an associated [`Identity`], which may be freely 
-//! shared. A `Signature` may be provided separate from the data or alongside it, and always includes 
-//! the `Identity` of the signer.
+//! This module lets you create a signing [`IdentityKey`], which can be used to create a 
+//! [`Signature`] for a given [`Hash`](crate::hash::Hash). Each `IdentityKey` has an associated 
+//! [`Identity`], which may be freely shared. A `Signature` may be provided separate from the data 
+//! or alongside it, and always includes the `Identity` of the signer.
 //! 
-//! All `IdentityKey` structs are backed by some struct that implements the `SignInterface` trait; this 
-//! can be an in-memory private key, an interface to an OS-managed keystore, an interface to a hardware 
-//! security module, or something else.
+//! All `IdentityKey` structs are backed by some struct that implements the `SignInterface` trait; 
+//! this can be an in-memory private key, an interface to an OS-managed keystore, an interface to a 
+//! hardware security module, or something else.
 //! 
 //! # Example
 //! 
-//! This uses a local Identity Key - a [`Vault`](crate::Vault) should normally be used to generate one instead.
 //! ```
 //! # use fog_crypto::identity::*;
 //! # use fog_crypto::hash::Hash;
@@ -117,7 +116,6 @@ impl IdentityKey {
     /// Sign a hash. Panics if an empty hash is provided. Signing should be fast and always 
     /// succeed.
     pub fn sign(&self, hash: &Hash) -> Signature {
-        assert!(hash.version() != 0u8);
         self.interface.sign(hash)
     }
 
@@ -311,9 +309,11 @@ pub trait SignInterface {
     /// Export the signing key in an `IdentityLockbox`, with `receive_stream` as the recipient. If 
     /// the key cannot be exported, this should return None. Additionally, if the underlying 
     /// implementation does not allow moving the raw key into memory (i.e. it cannot call
-    /// [`StreamInterface::encrypt`] or 
-    /// [`LockInterface::encrypt`](crate::lock::LockInterface::encrypt)) then None can also be 
-    /// returned.
+    /// [`StreamInterface::encrypt`][StreamEncrypt] or [`lock_id_encrypt`][LockEncrypt]) then None 
+    /// can also be returned.
+    ///
+    /// [StreamEncrypt]: crate::stream::StreamInterface::encrypt
+    /// [LockEncrypt]: crate::lock::lock_id_encrypt
     fn self_export_stream(
         &self,
         csprng: &mut dyn CryptoSrc,
@@ -729,15 +729,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn panic_on_empty_hash() {
-        let mut csprng = rand::rngs::OsRng;
-        let key = IdentityKey::new_temp(&mut csprng);
-        let hash = Hash::new_empty();
-        let _ = key.sign(&hash);
-    }
-
-    #[test]
     fn wrong_hashes() {
         let mut csprng = rand::rngs::OsRng;
         let key = IdentityKey::new_temp(&mut csprng);
@@ -754,10 +745,6 @@ mod tests {
         // Decode: Fail the verification step
         let unverified = UnverifiedSignature::try_from(&enc[..])
             .expect("Wasn't able to decode an unverified signature");
-        if let Err(CryptoError::ObjectMismatch(_)) = unverified.verify(&Hash::new_empty()) {} else {
-            panic!("Signature verification should fail with ObjectMismatch when given an empty Hash");
-        }
-        let unverified = UnverifiedSignature::try_from(&enc[..]).unwrap();
         if let Err(CryptoError::SignatureFailed) = unverified.verify(&bad_hash) {} else {
             panic!("Signature verification should fail with SignatureFailed when given the wrong Hash");
         }

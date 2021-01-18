@@ -1,3 +1,29 @@
+//! Cryptographic hashing.
+//!
+//! This module lets you create a cryptographic hash from a byte stream. Cryptographic hashes can 
+//! be used to uniquely identify a data sequence. They can be passed to an 
+//! [`IdentityKey`](crate::identity::IdentityKey) to be signed.
+//!
+//! Optionally, you can also create a special "empty" hash value. The empty hash can be used in a 
+//! hash-based referencing scheme to refer to the containing document. It cannot be signed, and 
+//! should
+//!
+//!
+//! # Example
+//!
+//! ```
+//! # use fog_crypto::hash::*;
+//! // Create a new hash from raw bytes
+//! let hash = Hash::new(b"I am the entire data sequence");
+//! println!("Hash(Base58): {}", hash);
+//!
+//! // Create a hash by feeding in bytes repeatedly
+//! let mut hash_state = HashState::new();
+//! hash_state.update(b"I am the first part of a data sequence");
+//! hash_state.update(b"And I am their sibling, the second part of a data sequence");
+//! let hash = hash_state.finalize();
+//! println!("Hash(Base58): {}", hash);
+//! ```
 
 use crate::error::CryptoError;
 
@@ -17,16 +43,25 @@ pub const DEFAULT_HASH_VERSION: u8 = 1;
 pub const MIN_HASH_VERSION: u8 = 1;
 pub const MAX_HASH_VERSION: u8 = 1;
 
-const V0_DIGEST_SIZE: usize = 0;
 const V1_DIGEST_SIZE: usize = 32;
 
-/// Crytographically secure hash of data. Offers constant time equality check (non-constant time 
-/// ordinal checks). A version byte is used to indicate what hash algorithm should be used. 
-/// Uses base58 encoding when displayed, unless overridden with hex formatting or debug formatting.
+/// Crytographically secure hash of data.
+///
+/// Offers constant time equality check (non-constant time ordinal checks). A version byte is used 
+/// to indicate what hash algorithm should be used.  Uses base58 encoding when displayed, unless 
+/// overridden with hex formatting or debug formatting.
 ///
 /// # Supported Versions
-/// - 0: Null hash. Used to refer to hash of parent document
 /// - 1: Blake2B hash with 32 bytes of digest
+///
+/// # Example
+/// ```
+/// # use fog_crypto::hash::*;
+/// // Create a new hash from raw bytes
+/// let hash = Hash::new(b"I am the entire data sequence");
+/// println!("Hash(Base58): {}", hash);
+///
+/// ```
 #[derive(Clone)]
 pub struct Hash {
     data: Vec<u8>,
@@ -48,16 +83,6 @@ impl Hash {
         Ok(state.finalize())
     }
 
-    /// Create an empty Hash, Only valid in certain encoding contexts, and cannot be generated from 
-    /// actual data. Primarily meant to act as a reference to a parent document - i.e. if you want 
-    /// to refer to the hash of a data stream while within that data stream, this is a way to do 
-    /// that.
-    pub fn new_empty() -> Hash {
-        Self {
-            data: vec![0u8]
-        }
-    }
-
     /// Algorithm version associated with this hash.
     pub fn version(&self) -> u8 {
         self.data[0]
@@ -68,18 +93,16 @@ impl Hash {
         &self.data[1..]
     }
 
+    /// Attempt to parse a Base58-encoded hash type. Fails if the string isn't valid Base58 or the 
+    /// hash itself isn't valid.
     pub fn from_base58(s: &str) -> Result<Self, CryptoError> {
         let raw = bs58::decode(s).into_vec().or(Err(CryptoError::BadFormat("Not valid Base58")))?;
         Self::try_from(&raw[..])
     }
 
+    /// Encode the hash as a Base58 string.
     pub fn to_base58(&self) -> String {
         bs58::encode(&self.data).into_string()
-    }
-
-    /// The raw cryptographic hash digest, without any version info.
-    pub fn raw_digest(&self) -> &[u8] {
-        &self.data[1..]
     }
 
 }
@@ -89,17 +112,21 @@ impl TryFrom<&[u8]> for Hash {
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         let raw = value.as_ref();
-        let version = raw.get(0)
+        let &version = raw.get(0)
             .ok_or(CryptoError::BadLength{step: "get hash version", actual: 0, expected: 1})?;
 
+        // Version check
+        if version < MIN_HASH_VERSION || version > MAX_HASH_VERSION {
+            return Err(CryptoError::UnsupportedVersion(version));
+        }
+
         // Length check
-        let expected_len = 1 + match version {
-            0 => V0_DIGEST_SIZE,
-            1 => V1_DIGEST_SIZE,
-            _ => return Err(CryptoError::UnsupportedVersion(*version)),
-        };
-        if raw.len() != expected_len {
-            return Err(CryptoError::BadLength{step: "get hash digest", actual: raw.len(), expected: expected_len});
+        if raw.len() != 1+V1_DIGEST_SIZE {
+            return Err(CryptoError::BadLength {
+                step: "get hash digest (with version)",
+                actual: raw.len(),
+                expected: 1+V1_DIGEST_SIZE
+            });
         }
 
         Ok(Self {
@@ -185,6 +212,20 @@ impl std::hash::Hash for Hash {
 
 
 /// A hasher that can incrementally take in data and produce a hash at any time.
+///
+/// # Example
+///
+/// ```
+/// // Create a hash by feeding in bytes repeatedly
+/// # use fog_crypto::hash::*;
+/// let mut hash_state = HashState::new();
+/// hash_state.update(b"I am the first part of a data sequence");
+/// let hash_first = hash_state.hash(); // Produce a hash of just the first part
+/// hash_state.update(b"And I am their sibling, the second part of a data sequence");
+/// let hash_full = hash_state.finalize(); // Consume the HashState
+/// println!("hash_first(Base58): {}", hash_first);
+/// println!("hash_full(Base58): {}", hash_full);
+/// ```
 #[derive(Clone)]
 pub struct HashState {
     state: VarBlake2b
@@ -254,12 +295,6 @@ mod tests {
     use serde_json::{self,Value};
     use hex;
 
-    fn enc_dec(h: Hash) {
-        let v = Vec::from(h.as_ref());
-        let hd = Hash::try_from(&v[..]).unwrap();
-        assert_eq!(h, hd);
-    }
-
     #[test]
     fn hash_vectors() {
         let file_ref = fs::File::open("test-resources/blake2b-test-vectors.json").unwrap();
@@ -279,8 +314,22 @@ mod tests {
             assert_eq!(h2.digest(), &ref_hash[..]);
             assert_eq!(h3.version(), 1u8);
             assert_eq!(h3.digest(), &ref_hash[..]);
-            enc_dec(h)
+            let v = Vec::from(h.as_ref());
+            let hd = Hash::try_from(&v[..]).unwrap();
+            assert_eq!(h, hd);
         }
+    }
+
+    #[test]
+    fn bad_version() {
+        let hash = Hash::new(b"I am a message, being hashed.");
+        let mut enc = Vec::from(hash.as_ref());
+        enc[0] = 99u8;
+        let result = Hash::try_from(&enc[..]);
+        assert!(result.is_err());
+        enc[0] = 0u8;
+        let result = Hash::try_from(&enc[..]);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -302,15 +351,6 @@ mod tests {
         let h = Hash::new(&hex::decode("00010203040506070809").unwrap());
         assert_eq!(h.version(), 1);
         assert_eq!(h.digest(), &digest[..]);
-    }
-
-    #[test]
-    fn empty() {
-        let h = Hash::new_empty();
-        let blank: Vec<u8> = Vec::new();
-        assert_eq!(h.version(), 0);
-        assert_eq!(h.digest(), &blank[..]);
-        enc_dec(h);
     }
 
     #[test]
