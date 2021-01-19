@@ -10,6 +10,7 @@
 //! # use std::convert::TryFrom;
 //! # use fog_crypto::stream::*;
 //! # use fog_crypto::lockbox::*;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! // Make a new temporary key
 //! let mut csprng = rand::rngs::OsRng {};
@@ -25,9 +26,10 @@
 //! encoded.extend_from_slice(lockbox.as_bytes());
 //!
 //! // Decrypt that data with the same key
-//! let dec_lockbox = DataLockbox::try_from(encoded.as_ref()).unwrap();
-//! let dec_data = key.decrypt_data(&dec_lockbox).unwrap();
-//! assert_eq!(&data[..], &dec_data[..]);
+//! let dec_lockbox = DataLockbox::try_from(encoded.as_ref())?;
+//! let dec_data = key.decrypt_data(&dec_lockbox)?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Algorithms
@@ -103,6 +105,7 @@ pub(crate) fn stream_id_size(_version: u8) -> usize {
 /// # use std::convert::TryFrom;
 /// # use fog_crypto::stream::*;
 /// # use fog_crypto::lockbox::*;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// // Make a new temporary key
 /// let mut csprng = rand::rngs::OsRng {};
@@ -116,9 +119,10 @@ pub(crate) fn stream_id_size(_version: u8) -> usize {
 /// encoded.extend_from_slice(lockbox.as_bytes());
 ///
 /// // Decrypt that data with the same key
-/// let dec_lockbox = DataLockbox::try_from(encoded.as_ref()).unwrap();
-/// let dec_data = key.decrypt_data(&dec_lockbox).unwrap();
-/// assert_eq!(&data[..], &dec_data[..]);
+/// let dec_lockbox = DataLockbox::try_from(encoded.as_ref())?;
+/// let dec_data = key.decrypt_data(&dec_lockbox)?;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone)]
 pub struct StreamKey {
@@ -259,6 +263,7 @@ pub fn new_stream_key(interface: Arc<dyn StreamInterface>) -> StreamKey {
 /// An implementor must handle all supported symmetric-key encryption algorithms.
 pub trait StreamInterface: Sync + Send {
 
+    /// Get the corresponding `StreamId` for the symmetric key.
     fn id(&self) -> &StreamId;
 
     /// Encrypt raw data into a lockbox, following the `StreamKey`-recipient lockbox format (see 
@@ -602,6 +607,7 @@ impl StreamInterface for ContainedStreamKey {
 /// # use std::convert::TryFrom;
 /// # use fog_crypto::stream::*;
 /// # use fog_crypto::lockbox::*;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # let mut csprng = rand::rngs::OsRng {};
 /// #
 /// // We start with a known StreamKey
@@ -617,17 +623,19 @@ impl StreamInterface for ContainedStreamKey {
 /// // We get the byte vector `encoded`, which might be a lockbox
 /// // ...
 ///
-/// let dec_lockbox = DataLockbox::try_from(encoded.as_ref()).unwrap();
+/// let dec_lockbox = DataLockbox::try_from(encoded.as_ref())?;
 /// let recipient = dec_lockbox.recipient();
 /// if let LockboxRecipient::StreamId(ref id) = dec_lockbox.recipient() {
 ///     // Check to see if this matches the key's StreamId
 ///     if id == key.id() {
-///         let dec_data: Vec<u8> = key.decrypt_data(&dec_lockbox).unwrap();
+///         let dec_data: Vec<u8> = key.decrypt_data(&dec_lockbox)?;
 ///     }
 ///     else {
 ///         panic!("We were hoping this lockbox was for us!");
 ///     }
 /// }
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct StreamId {

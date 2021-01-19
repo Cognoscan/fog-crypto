@@ -14,6 +14,7 @@
 //! # use std::convert::TryFrom;
 //! # use fog_crypto::lock::*;
 //! # use fog_crypto::lockbox::*;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! // Make a new temporary key
 //! let mut csprng = rand::rngs::OsRng {};
@@ -29,9 +30,10 @@
 //! encoded.extend_from_slice(lockbox.as_bytes());
 //!
 //! // Decrypt that data with the private key
-//! let dec_lockbox = DataLockbox::try_from(encoded.as_ref()).unwrap();
-//! let dec_data = key.decrypt_data(&dec_lockbox).unwrap();
-//! assert_eq!(&data[..], &dec_data[..]);
+//! let dec_lockbox = DataLockbox::try_from(encoded.as_ref())?;
+//! let dec_data = key.decrypt_data(&dec_lockbox)?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Algorithms
@@ -107,6 +109,7 @@ pub(crate) fn lock_eph_size(_version: u8) -> usize {
 /// # use std::convert::TryFrom;
 /// # use fog_crypto::lock::*;
 /// # use fog_crypto::lockbox::*;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// // Make a new temporary key
 /// let mut csprng = rand::rngs::OsRng {};
@@ -123,8 +126,10 @@ pub(crate) fn lock_eph_size(_version: u8) -> usize {
 /// # received.extend_from_slice(lockbox.as_bytes());
 ///
 /// // Decrypt Some received data
-/// let lockbox = DataLockbox::try_from(received.as_ref()).unwrap();
-/// let data = key.decrypt_data(&lockbox).unwrap();
+/// let lockbox = DataLockbox::try_from(received.as_ref())?;
+/// let data = key.decrypt_data(&lockbox)?;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone)]
 pub struct LockKey {

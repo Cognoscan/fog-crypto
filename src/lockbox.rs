@@ -181,6 +181,7 @@ pub(crate) fn lockbox_tag_size(_version: u8) -> usize {
 /// # use fog_crypto::lock::*;
 /// # use fog_crypto::lockbox::*;
 /// # use fog_crypto::stream::*;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
 /// # let mut csprng = rand::rngs::OsRng;
 /// # let key = StreamKey::new_temp(&mut csprng);
@@ -191,13 +192,14 @@ pub(crate) fn lockbox_tag_size(_version: u8) -> usize {
 /// # let enc = Vec::from(lockbox.as_bytes());
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
-/// let dec_lockbox: LockLockbox = LockLockbox::try_from(&enc[..]).unwrap();
+/// let dec_lockbox: LockLockbox = LockLockbox::try_from(&enc[..])?;
 /// let recipient: &LockboxRecipient = dec_lockbox.recipient();
 /// // ...
 /// // Retrieve the key by looking up recipient
 /// // ...
-/// let dec_key: LockKey = key.decrypt_lock_key(&dec_lockbox).unwrap();
-///
+/// let dec_key: LockKey = key.decrypt_lock_key(&dec_lockbox)?;
+/// # Ok(())
+/// # }
 /// ```
 pub struct LockLockbox(Lockbox);
 
@@ -255,6 +257,7 @@ impl TryFrom<&[u8]> for LockLockbox {
 /// # use fog_crypto::identity::*;
 /// # use fog_crypto::lockbox::*;
 /// # use fog_crypto::stream::*;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
 /// # let mut csprng = rand::rngs::OsRng;
 /// # let key = StreamKey::new_temp(&mut csprng);
@@ -265,13 +268,14 @@ impl TryFrom<&[u8]> for LockLockbox {
 /// # let enc = Vec::from(lockbox.as_bytes());
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
-/// let dec_lockbox: IdentityLockbox = IdentityLockbox::try_from(&enc[..]).unwrap();
+/// let dec_lockbox: IdentityLockbox = IdentityLockbox::try_from(&enc[..])?;
 /// let recipient: &LockboxRecipient = dec_lockbox.recipient();
 /// // ...
 /// // Retrieve the key by looking up recipient
 /// // ...
-/// let dec_key: IdentityKey = key.decrypt_identity_key(&dec_lockbox).unwrap();
-///
+/// let dec_key: IdentityKey = key.decrypt_identity_key(&dec_lockbox)?;
+/// # Ok(())
+/// # }
 /// ```
 pub struct IdentityLockbox(Lockbox);
 
@@ -328,6 +332,7 @@ impl TryFrom<&[u8]> for IdentityLockbox {
 /// # use std::convert::TryFrom;
 /// # use fog_crypto::lockbox::*;
 /// # use fog_crypto::stream::*;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
 /// # let mut csprng = rand::rngs::OsRng;
 /// # let key = StreamKey::new_temp(&mut csprng);
@@ -338,13 +343,14 @@ impl TryFrom<&[u8]> for IdentityLockbox {
 /// # let enc = Vec::from(lockbox.as_bytes());
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
-/// let dec_lockbox: StreamLockbox = StreamLockbox::try_from(&enc[..]).unwrap();
+/// let dec_lockbox: StreamLockbox = StreamLockbox::try_from(&enc[..])?;
 /// let recipient: &LockboxRecipient = dec_lockbox.recipient();
 /// // ...
 /// // Retrieve the key by looking up recipient
 /// // ...
-/// let dec_key: StreamKey = key.decrypt_stream_key(&dec_lockbox).unwrap();
-///
+/// let dec_key: StreamKey = key.decrypt_stream_key(&dec_lockbox)?;
+/// # Ok(())
+/// # }
 /// ```
 pub struct StreamLockbox(Lockbox);
 
@@ -402,6 +408,7 @@ impl TryFrom<&[u8]> for StreamLockbox {
 /// # use std::convert::TryFrom;
 /// # use fog_crypto::lockbox::*;
 /// # use fog_crypto::stream::*;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
 /// # let mut csprng = rand::rngs::OsRng;
 /// # let key = StreamKey::new_temp(&mut csprng);
@@ -412,13 +419,14 @@ impl TryFrom<&[u8]> for StreamLockbox {
 /// # let enc = Vec::from(lockbox.as_bytes());
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
-/// let dec_lockbox: DataLockbox = DataLockbox::try_from(&enc[..]).unwrap();
+/// let dec_lockbox: DataLockbox = DataLockbox::try_from(&enc[..])?;
 /// let recipient: &LockboxRecipient = dec_lockbox.recipient();
 /// // ...
 /// // Retrieve the key by looking up recipient
 /// // ...
-/// let plaintext: Vec<u8> = key.decrypt_data(&dec_lockbox).unwrap();
-///
+/// let plaintext: Vec<u8> = key.decrypt_data(&dec_lockbox)?;
+/// # Ok(())
+/// # }
 /// ```
 pub struct DataLockbox(Lockbox);
 

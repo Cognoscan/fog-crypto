@@ -15,6 +15,7 @@
 //! # use fog_crypto::identity::*;
 //! # use fog_crypto::hash::Hash;
 //! # use std::convert::TryFrom;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! // Make a new temporary key
 //! let mut csprng = rand::rngs::OsRng {};
@@ -31,7 +32,7 @@
 //! signature.encode_vec(&mut encoded);
 //! 
 //! // Decode the signature and verify it
-//! let unverified = UnverifiedSignature::try_from(&encoded[..]).unwrap();
+//! let unverified = UnverifiedSignature::try_from(&encoded[..])?;
 //! match unverified.verify(&hash) {
 //!     Ok(verified) => {
 //!         println!("Got valid signature, signed by {}", verified.signer());
@@ -40,6 +41,8 @@
 //!         println!("Signature failed validation");
 //!     }
 //! }
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Algorithms
@@ -577,6 +580,8 @@ impl fmt::Debug for Signature {
 /// # use fog_crypto::hash::Hash;
 /// # use std::convert::TryFrom;
 /// # use std::sync::Arc;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// #
 /// # let mut csprng = rand::rngs::OsRng {};
 /// # let key = IdentityKey::new_temp(&mut csprng);
 /// # let mut encoded = Vec::new();
@@ -586,9 +591,9 @@ impl fmt::Debug for Signature {
 /// # let signature = key.sign(&hash);
 /// # signature.encode_vec(&mut encoded);
 /// 
-/// let unverified = UnverifiedSignature::try_from(&encoded[..]).unwrap();
+/// let unverified = UnverifiedSignature::try_from(&encoded[..])?;
 /// let hash_version = unverified.hash_version();
-/// let hash = Hash::with_version(&data[..], hash_version).unwrap();
+/// let hash = Hash::with_version(&data[..], hash_version)?;
 /// match unverified.verify(&hash) {
 ///     Ok(verified) => {
 ///         println!("Got valid signature, signed by {}", verified.signer());
@@ -597,6 +602,8 @@ impl fmt::Debug for Signature {
 ///         println!("Signature failed validation");
 ///     }
 /// }
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone,Copy,PartialEq,Eq)]
 pub struct UnverifiedSignature {
