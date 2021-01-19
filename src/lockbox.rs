@@ -1,13 +1,15 @@
 //! Encrypted data.
 //!
-//! This submodule provides 4 different types of "lockboxes":
+//! This submodule provides "lockboxes", which are byte sequences holding encrypted information. 
+//! There are 4 different types of lockboxes:
 //! - [`IdentityLockbox`]: Stores an [`IdentityKey`](crate::identity::IdentityKey)
 //! - [`StreamLockbox`]: Stores a [`StreamKey`](crate::stream::StreamKey)
 //! - [`LockLockbox`]: Stores a [`LockKey`](crate::lock::LockKey)
 //! - [`DataLockbox`]: Stores an arbitrary byte sequence
 //!
 //! Each lockbox is encoded in a similar way. The lockbox type should be known when attempting to 
-//! decode it, though if necessary it is also possible to determine the type through decoding.
+//! decode it, though if necessary it is also possible to determine the type through decoding (see 
+//! [`determine_lockbox_type`]).
 //! 
 //! A lockbox is created with a specific [`LockId`] or [`StreamKey`](crate::stream::StreamKey) as 
 //! the intended recipient.  A `DataLockbox` can be created by calling the encrypt function on a 
@@ -26,19 +28,19 @@
 //! The different types of lockboxes each have 2 subtypes: one for `LockId`-recipient lockboxes, 
 //! and one for `StreamKey`-recipient lockboxes. The encoded type byte is thus:
 //!
-//! | Recipient  | Type              | Byte Value |
-//! | --         | --                | --         |
-//! | `LockId`   | `IdentityLockbox` | 0          |
-//! | `StreamId` | `IdentityLockbox` | 1          |
-//! | `LockId`   | `StreamLockbox`   | 2          |
-//! | `StreamId` | `StreamLockbox`   | 3          |
-//! | `LockId`   | `LockLockbox`     | 4          |
-//! | `StreamId` | `LockLockbox`     | 5          |
-//! | `LockId`   | `DataLockbox`     | 6          |
-//! | `StreamId` | `DataLockbox`     | 7          |
+//! | Type              | Recipient  | Byte Value |
+//! | --                | --         | --         |
+//! | `IdentityLockbox` | `LockId`   | 0          |
+//! | `IdentityLockbox` | `StreamId` | 1          |
+//! | `StreamLockbox`   | `LockId`   | 2          |
+//! | `StreamLockbox`   | `StreamId` | 3          |
+//! | `LockLockbox`     | `LockId`   | 4          |
+//! | `LockLockbox`     | `StreamId` | 5          |
+//! | `DataLockbox`     | `LockId`   | 6          |
+//! | `DataLockbox`     | `StreamId` | 7          |
 //!
-//! Alternately, the Type byte can be considered to have two bitfields: Bit 0 encodes the 
-//! recipient, and Bits 2 & 1 encode the main lockbox type.
+//! Alternately, the Type byte can be considered to have two bitfields: bit 0 encodes the 
+//! recipient, and bits 2 & 1 encode the main lockbox type.
 //!
 //! # Format
 //!
@@ -60,17 +62,19 @@
 //! | Version  |   Type   | StreamId |  Nonce   |  Ciphertext  | Tag |
 //! +----------+----------+==========+==========+==============+=====+
 //! 
-//! - SignKey is a LockId. This is a version byte followed by a 32-byte X25519 public key
-//! - EphKey is a 32-byte X25519 public key
-//! - StreamId is a 32-byte hash of the encryption key (see StreamId documentation)
-//! - Nonce is a 24-byte random nonce
-//! - Ciphertext is the internal data, encrypted with XChaCha20
-//! - Tag is the authentication tag produced using the XChaCha20-Poly1305 AEAD
-//!     construction.
+//! - Version indicates what version of symmetric-key encryption was used for this lockbox.
+//! - Type indicates the lockbox type and recipient type. If bit 0 is cleared, the first format 
+//!   (with SignKey & EphKey) is used. If bit 1 is set, the second format (with StreamId) is used.
+//! - SignKey is a LockId. This is a version byte followed by the encoded public key.
+//! - EphKey is a raw public key, of the same version as SignKey.
+//! - StreamId is an identifier for the StreamKey that created the lockbox.
+//! - Nonce is a random byte sequence matching the nonce length specified by the symmetric 
+//!   encryption version used.
+//! - Ciphertext is the internal data, encrypted with the chosen algorithm.
+//! - Tag is the authentication tag produced using the chosen algorithm.
 //! ```
 //!
 //! In the AEAD construction, the additional data consists of every byte prior to the nonce.
-//!
 //!
 
 use crate::{
@@ -84,6 +88,10 @@ use std::{convert::TryFrom, fmt};
 pub(crate) const V1_LOCKBOX_NONCE_SIZE: usize = 24;
 pub(crate) const V1_LOCKBOX_TAG_SIZE: usize = 16;
 
+/// Encodes the various types of lockboxes that may be decoded.
+///
+/// Each lockbox type can have a [`StreamKey`](crate::stream::StreamKey) recipient, in which case 
+/// the held boolean should be set to true.
 pub enum LockboxType {
     Identity(bool),
     Stream(bool),
@@ -93,6 +101,8 @@ pub enum LockboxType {
 
 
 impl LockboxType {
+
+    /// Convert the lockbox type into its encoded byte value.
     pub fn as_u8(&self) -> u8 {
         use LockboxType::*;
         let (v, t) = match self {
@@ -104,6 +114,7 @@ impl LockboxType {
         if t { v | 0x1 } else { v }
     }
 
+    /// Attempt to decode a lockbox type byte.
     pub fn from_u8(v: u8) -> Result<Self,CryptoError> {
         use LockboxType::*;
         let t = (v & 0x1) != 0;
@@ -116,6 +127,7 @@ impl LockboxType {
         }
     }
 
+    /// Check if the lockbox type has a stream recipient.
     pub fn is_for_stream(&self) -> bool {
         use LockboxType::*;
         match self {
@@ -125,6 +137,17 @@ impl LockboxType {
             Data(t)     => *t,
         }
     }
+}
+
+/// Determine what type of lockbox is in the encoded sequence. This only checks the first two 
+/// bytes, and doesn't guarantee the whole `raw` byte slice contains a valid encoded lockbox.
+pub fn determine_lockbox_type(raw: &[u8]) -> Result<LockboxType, CryptoError> {
+    let &boxtype = raw.get(1).ok_or(CryptoError::BadLength {
+        step: "get lockbox type",
+        expected: 2,
+        actual: raw.len()
+    })?;
+    LockboxType::from_u8(boxtype)
 }
 
 /// Get expected size of a Lockbox's nonce for a given version. Version *must* be validated before
@@ -139,7 +162,43 @@ pub(crate) fn lockbox_tag_size(_version: u8) -> usize {
     V1_LOCKBOX_TAG_SIZE
 }
 
-/// An encrypted `LockKey`.
+/// An encrypted [`LockKey`](crate::lock::LockKey).
+///
+/// This must be decrypted by the matching recipient, which will return the `LockKey` on success. 
+/// It can either be decrypted on its own, returning a temporary `LockKey`, or through a Vault, 
+/// which will store the `LockKey`.
+///
+/// See: [`StreamKey::decrypt_lock_key`](crate::stream::StreamKey::decrypt_lock_key),
+/// [`LockKey::decrypt_lock_key`](crate::lock::LockKey::decrypt_lock_key), and
+/// [`Vault::decrypt_lock_key`](crate::Vault::decrypt_lock_key).
+///
+/// # Example
+///
+/// Using a `StreamKey` for decryption:
+///
+/// ```
+/// # use std::convert::TryFrom;
+/// # use fog_crypto::lock::*;
+/// # use fog_crypto::lockbox::*;
+/// # use fog_crypto::stream::*;
+/// # // Setup
+/// # let mut csprng = rand::rngs::OsRng;
+/// # let key = StreamKey::new_temp(&mut csprng);
+/// # let to_send = LockKey::new_temp(&mut csprng);
+/// #
+/// # // Encrypt
+/// # let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+/// # let enc = Vec::from(lockbox.as_bytes());
+/// #
+/// // We have `enc`, a byte vector containing a lockbox
+/// let dec_lockbox: LockLockbox = LockLockbox::try_from(&enc[..]).unwrap();
+/// let recipient: &LockboxRecipient = dec_lockbox.recipient();
+/// // ...
+/// // Retrieve the key by looking up recipient
+/// // ...
+/// let dec_key: LockKey = key.decrypt_lock_key(&dec_lockbox).unwrap();
+///
+/// ```
 pub struct LockLockbox(Lockbox);
 
 impl LockLockbox {
@@ -177,7 +236,43 @@ impl TryFrom<&[u8]> for LockLockbox {
     }
 }
 
-/// An encrypted `IdentityKey`.
+/// An encrypted [`IdentityKey`](crate::identity::IdentityKey).
+///
+/// This must be decrypted by the matching recipient, which will return the `IdentityKey` on 
+/// success.  It can either be decrypted on its own, returning a temporary `IdentityKey`, or 
+/// through a Vault, which will store the `IdentityKey`.
+///
+/// See: [`StreamKey::decrypt_identity_key`](crate::stream::StreamKey::decrypt_identity_key),
+/// [`LockKey::decrypt_identity_key`](crate::lock::LockKey::decrypt_identity_key), and
+/// [`Vault::decrypt_identity_key`](crate::Vault::decrypt_identity_key).
+///
+/// # Example
+///
+/// Using a `StreamKey` for decryption:
+///
+/// ```
+/// # use std::convert::TryFrom;
+/// # use fog_crypto::identity::*;
+/// # use fog_crypto::lockbox::*;
+/// # use fog_crypto::stream::*;
+/// # // Setup
+/// # let mut csprng = rand::rngs::OsRng;
+/// # let key = StreamKey::new_temp(&mut csprng);
+/// # let to_send = IdentityKey::new_temp(&mut csprng);
+/// #
+/// # // Encrypt
+/// # let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+/// # let enc = Vec::from(lockbox.as_bytes());
+/// #
+/// // We have `enc`, a byte vector containing a lockbox
+/// let dec_lockbox: IdentityLockbox = IdentityLockbox::try_from(&enc[..]).unwrap();
+/// let recipient: &LockboxRecipient = dec_lockbox.recipient();
+/// // ...
+/// // Retrieve the key by looking up recipient
+/// // ...
+/// let dec_key: IdentityKey = key.decrypt_identity_key(&dec_lockbox).unwrap();
+///
+/// ```
 pub struct IdentityLockbox(Lockbox);
 
 impl IdentityLockbox {
@@ -215,7 +310,42 @@ impl TryFrom<&[u8]> for IdentityLockbox {
     }
 }
 
-/// An encrypted `StreamKey`.
+/// An encrypted [`StreamKey`](crate::stream::StreamKey).
+///
+/// This must be decrypted by the matching recipient, which will return the `StreamKey` on 
+/// success.  It can either be decrypted on its own, returning a temporary `StreamKey`, or 
+/// through a Vault, which will store the `StreamKey`.
+///
+/// See: [`StreamKey::decrypt_stream_key`](crate::stream::StreamKey::decrypt_stream_key),
+/// [`LockKey::decrypt_stream_key`](crate::lock::LockKey::decrypt_stream_key), and
+/// [`Vault::decrypt_stream_key`](crate::Vault::decrypt_stream_key).
+///
+/// # Example
+///
+/// Using a `StreamKey` for decryption (different from the one contained in the lockbox!):
+///
+/// ```
+/// # use std::convert::TryFrom;
+/// # use fog_crypto::lockbox::*;
+/// # use fog_crypto::stream::*;
+/// # // Setup
+/// # let mut csprng = rand::rngs::OsRng;
+/// # let key = StreamKey::new_temp(&mut csprng);
+/// # let to_send = StreamKey::new_temp(&mut csprng);
+/// #
+/// # // Encrypt
+/// # let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+/// # let enc = Vec::from(lockbox.as_bytes());
+/// #
+/// // We have `enc`, a byte vector containing a lockbox
+/// let dec_lockbox: StreamLockbox = StreamLockbox::try_from(&enc[..]).unwrap();
+/// let recipient: &LockboxRecipient = dec_lockbox.recipient();
+/// // ...
+/// // Retrieve the key by looking up recipient
+/// // ...
+/// let dec_key: StreamKey = key.decrypt_stream_key(&dec_lockbox).unwrap();
+///
+/// ```
 pub struct StreamLockbox(Lockbox);
 
 impl StreamLockbox {
@@ -255,6 +385,41 @@ impl TryFrom<&[u8]> for StreamLockbox {
 
 
 /// General encrypted data.
+///
+/// This must be decrypted by the matching recipient, which will return a `Vec<u8>` on success.
+/// It can either be decrypted on its own or through a Vault. In both cases, the data is returned 
+/// without being stored anywhere.
+///
+/// See: [`StreamKey::decrypt_data`](crate::stream::StreamKey::decrypt_data),
+/// [`LockKey::decrypt_data`](crate::lock::LockKey::decrypt_data), and
+/// [`Vault::decrypt_data`](crate::Vault::decrypt_data).
+///
+/// # Example
+///
+/// Using a `StreamKey` for decryption:
+///
+/// ```
+/// # use std::convert::TryFrom;
+/// # use fog_crypto::lockbox::*;
+/// # use fog_crypto::stream::*;
+/// # // Setup
+/// # let mut csprng = rand::rngs::OsRng;
+/// # let key = StreamKey::new_temp(&mut csprng);
+/// # let to_send = b"I am data to be encrypted, and you don't need to see me.";
+/// #
+/// # // Encrypt
+/// # let lockbox = key.encrypt_data(&mut csprng, &to_send[..]);
+/// # let enc = Vec::from(lockbox.as_bytes());
+/// #
+/// // We have `enc`, a byte vector containing a lockbox
+/// let dec_lockbox: DataLockbox = DataLockbox::try_from(&enc[..]).unwrap();
+/// let recipient: &LockboxRecipient = dec_lockbox.recipient();
+/// // ...
+/// // Retrieve the key by looking up recipient
+/// // ...
+/// let plaintext: Vec<u8> = key.decrypt_data(&dec_lockbox).unwrap();
+///
+/// ```
 pub struct DataLockbox(Lockbox);
 
 impl DataLockbox {
@@ -293,10 +458,15 @@ impl TryFrom<&[u8]> for DataLockbox {
     }
 }
 
+/// A lockbox byte stream, sliced into its component parts
 pub struct LockboxParts<'a> {
+    /// The ephemeral public key
     pub eph_pub: Option<&'a[u8]>,
+    /// The entire "additional data" portion - every byte prior to the nonce.
     pub additional: &'a[u8],
+    /// The random nonce.
     pub nonce: &'a[u8],
+    /// The encrypted data, including the AEAD tag at the end.
     pub ciphertext: &'a[u8],
 }
 
@@ -440,35 +610,44 @@ impl fmt::Debug for Lockbox {
 }
 
 /// Directly take parts to construct a `LockLockbox`. Should only be used by implementors of the 
-/// `encrypt` functions. This is *not* checked for correctness. Strongly consider having unit tests 
-/// that check the round-trip encrypt/decrypt for each lockbox type to catch misuse of this.
+/// `encrypt` functions.
+///
+/// This is *not* checked for correctness. Strongly consider having unit tests that check the 
+/// round-trip encrypt/decrypt for each lockbox type to catch misuse of this.
 pub fn lock_lockbox_from_parts(recipient: LockboxRecipient, inner: Vec<u8>) -> LockLockbox {
     LockLockbox(Lockbox { recipient, inner })
 }
 
 /// Directly take parts to construct a `IdentityLockbox`. Should only be used by implementors of the 
-/// `encrypt` functions. This is *not* checked for correctness. Strongly consider having unit tests 
-/// that check the round-trip encrypt/decrypt for each lockbox type to catch misuse of this.
+/// `encrypt` functions.
+///
+/// This is *not* checked for correctness. Strongly consider having unit tests that check the 
+/// round-trip encrypt/decrypt for each lockbox type to catch misuse of this.
 pub fn identity_lockbox_from_parts(recipient: LockboxRecipient, inner: Vec<u8>) -> IdentityLockbox {
     IdentityLockbox(Lockbox { recipient, inner })
 }
 
 /// Directly take parts to construct a `StreamLockbox`. Should only be used by implementors of the 
-/// `encrypt` functions. This is *not* checked for correctness. Strongly consider having unit tests 
-/// that check the round-trip encrypt/decrypt for each lockbox type to catch misuse of this.
+/// `encrypt` functions.
+///
+/// This is *not* checked for correctness. Strongly consider having unit tests that check the 
+/// round-trip encrypt/decrypt for each lockbox type to catch misuse of this.
 pub fn stream_lockbox_from_parts(recipient: LockboxRecipient, inner: Vec<u8>) -> StreamLockbox {
     StreamLockbox(Lockbox { recipient, inner })
 }
 
 /// Directly take parts to construct a `DataLockbox`. Should only be used by implementors of the 
-/// `encrypt` functions. This is *not* checked for correctness. Strongly consider having unit tests 
-/// that check the round-trip encrypt/decrypt for each lockbox type to catch misuse of this.
+/// `encrypt` functions.
+///
+/// This is *not* checked for correctness. Strongly consider having unit tests that check the 
+/// round-trip encrypt/decrypt for each lockbox type to catch misuse of this.
 pub fn data_lockbox_from_parts(recipient: LockboxRecipient, inner: Vec<u8>) -> DataLockbox {
     DataLockbox(Lockbox { recipient, inner })
 }
 
-/// Lockboxes can be meant for one of two types of recipients: a LockId (public key), or a
-/// StreamId (symmetric key).
+/// Lockboxes can be meant for one of two types of recipients: a [`LockId`] (public key), or a
+/// [`StreamId`] (symmetric key). The corresponding [`LockKey`](crate::lock::LockKey) or 
+/// [`StreamKey`](crate::stream::StreamKey) is needed for decryption of the lockbox.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LockboxRecipient {
     LockId(LockId),

@@ -41,8 +41,40 @@
 //!     }
 //! }
 //! ```
+//!
+//! # Algorithms
+//!
+//! The current (and only) algorithm for public-key signatures is Ed25519 with [strict 
+//! verification][StrictVerification]. The private key is handled by an [`IdentityKey`], while the 
+//! public key is available as an [`Identity`].
+//!
+//! [StrictVerification]: https://docs.rs/ed25519-dalek/1.0.1/ed25519_dalek/struct.PublicKey.html#method.verify_strict
+//!
+//! # Format
+//!
+//! An [`Identity`] is encoded as a version byte followed by the contained public key, whose length 
+//! may be dependant on the version. For Ed25519, it is 32 bytes (plus the version byte).
+//!
+//! An [`IdentityKey`] is encoded as a version byte followed by the contained private key, whose 
+//! length may be dependant on the version. For Ed25519, it is 32 bytes (plus the version byte). 
+//! This encoding is only ever used for the payload of an [`IdentityLockbox`].
+//!
+//! A [`Signature`] is encoded as the version of hash that was signed, the `Identity` of the 
+//! signer, and finally the actual signature bytes. The length of the signature is dependant on the 
+//! version of `IdentityKey` (and thus `Identity`) that was used to make the signature. For 
+//! Ed25519, it is 64 bytes.
+//!
+//! ```text
+//! +--------------+==========+===========+
+//! | Hash Version | Identity | Signature |
+//! +--------------+==========+===========+
+//!
+//! - Hash Version (1 byte)
+//! - Identity: Variable, depends on Identity version
+//! - Signature: Variable, depends on Identity version
+//! ```
 
-use ed25519_dalek::{Signer, Verifier};
+use ed25519_dalek::Signer;
 
 use crate::{
     CryptoError,
@@ -585,7 +617,7 @@ impl UnverifiedSignature {
         if hash.version() != self.hash_version {
             return Err(CryptoError::ObjectMismatch("Verification step got wrong version of hash"));
         }
-        if self.id.verify(hash.digest(), &self.signature).is_err() {
+        if self.id.verify_strict(hash.digest(), &self.signature).is_err() {
             return Err(CryptoError::SignatureFailed);
         }
         Ok(Signature {

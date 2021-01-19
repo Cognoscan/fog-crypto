@@ -22,17 +22,43 @@
 //!
 //! println!("LockId(Base58): {}", key.id());
 //!
-//! // Encrypt some data and turn it into a byte vector
+//! // Encrypt some data with the public ID, then turn it into a byte vector
 //! let data = b"I am sensitive information, about to be encrypted";
 //! let lockbox = id.encrypt_data(&mut csprng, data.as_ref());
 //! let mut encoded = Vec::new();
 //! encoded.extend_from_slice(lockbox.as_bytes());
 //!
-//! // Decrypt that data
+//! // Decrypt that data with the private key
 //! let dec_lockbox = DataLockbox::try_from(encoded.as_ref()).unwrap();
 //! let dec_data = key.decrypt_data(&dec_lockbox).unwrap();
 //! assert_eq!(&data[..], &dec_data[..]);
 //! ```
+//!
+//! # Algorithms
+//!
+//! The current (and only) algorithm for public-key encryption is X25519 for calculation of the 
+//! shared secret. The private key is handled by a [`LockKey`], while the public key is available 
+//! as a [`LockId`].
+//!
+//! An ephemeral key pair is generated for each new lockbox, and the shared secret is calculated 
+//! on encryption with the ephemeral private key and the `LockId` through Diffie-Hellman key 
+//! exchange. On decryption, the ephemeral public key is recovered from the lockbox and is 
+//! combined with the recipient's `LockKey`.
+//!
+//! In all cases, the 32-byte shared secret is directly used as the symmetric key in 
+//! XChaCha20Poly1305.
+//!
+//! # Format
+//!
+//! A [`LockId`] is encoded as a version byte followed by the contained public key, whose length 
+//! may be dependant on the version. For X25519, it is 32 bytes (plus the version byte).
+//!
+//! A [`LockKey`] is encoded as a version byte followed by the contained private key, whose length 
+//! may be dependant on the version. For X25519, it is 32 bytes (plus the version byte).  This 
+//! encoding is only ever used for the payload of a [`LockLockbox`].
+//!
+//! For details on the lockbox formatting, see the [submodule documentation](crate::lockbox).
+//!
 
 use crate::{
     identity::{IdentityKey, ContainedIdKey, new_identity_key},
@@ -534,7 +560,7 @@ impl ContainedLockKey {
             ));
         }
 
-        // Attempt to read the ephermeral key and compute the secret
+        // Attempt to read the ephemeral key and compute the secret
         let eph_pub = parts.eph_pub.unwrap();
         if eph_pub.len() != V1_LOCK_ID_SIZE {
             return Err(CryptoError::BadLength {

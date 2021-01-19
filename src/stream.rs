@@ -4,23 +4,52 @@
 //! type. Each `StreamKey` has a corresponding `StreamId` for easily identifying the key needed to 
 //! decrypt a lockbox.
 //!
+//! # Example
+//!
+//! ```
+//! # use std::convert::TryFrom;
+//! # use fog_crypto::stream::*;
+//! # use fog_crypto::lockbox::*;
+//!
+//! // Make a new temporary key
+//! let mut csprng = rand::rngs::OsRng {};
+//! let key = StreamKey::new_temp(&mut csprng);
+//! let id = key.id().clone();
+//!
+//! println!("StreamId(Base58): {}", key.id());
+//!
+//! // Encrypt some data with the key, then turn it into a byte vector
+//! let data = b"I am sensitive information, about to be encrypted";
+//! let lockbox = key.encrypt_data(&mut csprng, data.as_ref());
+//! let mut encoded = Vec::new();
+//! encoded.extend_from_slice(lockbox.as_bytes());
+//!
+//! // Decrypt that data with the same key
+//! let dec_lockbox = DataLockbox::try_from(encoded.as_ref()).unwrap();
+//! let dec_data = key.decrypt_data(&dec_lockbox).unwrap();
+//! assert_eq!(&data[..], &dec_data[..]);
+//! ```
+//!
 //! # Algorithms
 //!
 //! The current (and only) algorithm for symmetric encryption is XChaCha20 with a Poly1305 AEAD 
-//! construction. See the [`lockbox`](crate::lockbox) module for documentation on the encoding 
-//! format for encrypted data.
+//! construction (XChaCha20Poly1305).
 //!
 //! The `StreamId` is computed by taking the 32-byte secret key and hashing it with BLAKE2b, with 
-//! the parameters: no key, no salt, and a persona set to "fog-crypto-sid".
+//! the parameters: no key, no salt, and a persona set to "fog-crypto-sid". 32 bytes of the output 
+//! hash are used to create the `StreamId`.
 //!
-//! # Encodings
+//! # Format
 //!
 //! A `StreamId` is encoded as a version byte followed by the key itself, whose length is dependant 
-//! on the version.
+//! on the version. For XChaCha20Poly1305, it is 32 bytes plus the version byte.
 //!
-//! A `StreamId` is also encoded as a version byte followed by the key itself, whose length is 
-//! dependant on the version.
+//! A `StreamKey` is also encoded as a version byte followed by the key itself, whose length is 
+//! dependant on the version. For XChaCha20Poly1305, it is 32 bytes plus the version byte. This 
+//! encoding is only ever used for the payload of a [`StreamLockbox`].
 //!
+//! See the [`lockbox`](crate::lockbox) module for documentation on the encoding format for 
+//! encrypted payloads.
 
 use crate::{
     identity::{IdentityKey, ContainedIdKey, new_identity_key},
@@ -45,8 +74,13 @@ use blake2::{
     digest::{Update, VariableOutput},
 };
 
+/// Default symmetric-key encryption algorithm version.
 pub const DEFAULT_STREAM_VERSION: u8 = 1;
+
+/// Minimum accepted symmetric-key encryption algorithm version.
 pub const MIN_STREAM_VERSION: u8 = 1;
+
+/// Maximum accepted symmetric-key encryption algorithm version.
 pub const MAX_STREAM_VERSION: u8 = 1;
 
 const V1_STREAM_ID_SIZE: usize = 32;
@@ -58,10 +92,34 @@ pub(crate) fn stream_id_size(_version: u8) -> usize {
     1+V1_STREAM_ID_SIZE
 }
 
-/// Stream Key that allows encrypting data into a `Lockbox`. This acts as a wrapper for a specific 
-/// cryptographic symmetric key, which can only be used with the corresponding symmetric encryption 
-/// algorithm. The underlying key may be located in a hardware module or some other private 
-/// keystore; in this case, it may be impossible to export the key.
+/// Stream Key that allows encrypting data into a `Lockbox` and decrypting it later.
+///
+/// This acts as a wrapper for a specific cryptographic symmetric key, which can only be used with 
+/// the corresponding symmetric encryption algorithm. The underlying key may be located in a 
+/// hardware module or some other private keystore; in this case, it may be impossible to export 
+/// the key.
+///
+/// ```
+/// # use std::convert::TryFrom;
+/// # use fog_crypto::stream::*;
+/// # use fog_crypto::lockbox::*;
+///
+/// // Make a new temporary key
+/// let mut csprng = rand::rngs::OsRng {};
+/// let key = StreamKey::new_temp(&mut csprng);
+/// let id = key.id().clone();
+///
+/// // Encrypt some data with the key, then turn it into a byte vector
+/// let data = b"I am sensitive information, about to be encrypted";
+/// let lockbox = key.encrypt_data(&mut csprng, data.as_ref());
+/// let mut encoded = Vec::new();
+/// encoded.extend_from_slice(lockbox.as_bytes());
+///
+/// // Decrypt that data with the same key
+/// let dec_lockbox = DataLockbox::try_from(encoded.as_ref()).unwrap();
+/// let dec_data = key.decrypt_data(&dec_lockbox).unwrap();
+/// assert_eq!(&data[..], &dec_data[..]);
+/// ```
 #[derive(Clone)]
 pub struct StreamKey {
     interface: Arc<dyn StreamInterface>
@@ -195,6 +253,10 @@ pub fn new_stream_key(interface: Arc<dyn StreamInterface>) -> StreamKey {
     }
 }
 
+/// A symmetric encryption/decryption interface, implemented by anything that can hold a symmetric 
+/// encryption key.
+///
+/// An implementor must handle all supported symmetric-key encryption algorithms.
 pub trait StreamInterface: Sync + Send {
 
     fn id(&self) -> &StreamId;
@@ -266,6 +328,8 @@ pub fn stream_id_from_key(version: u8, key: &[u8]) -> StreamId {
     id
 }
 
+/// A self-contained implementor of `StreamInterface`. It's expected this will be used unless the 
+/// symmetric key is being managed by the OS or a hardware module.
 pub struct ContainedStreamKey {
     key: [u8; V1_STREAM_KEY_SIZE],
     id: StreamId,
@@ -280,7 +344,8 @@ impl ContainedStreamKey {
        Self::with_version(csprng, DEFAULT_STREAM_VERSION).unwrap()
     }
 
-    /// Generate a new key with a specific version, given a cryptographic RNG.
+    /// Generate a new key with a specific version, given a cryptographic RNG. Fails if the version 
+    /// isn't supported.
     pub fn with_version<R>(csprng: &mut R, version: u8) -> Result<Self, CryptoError>
         where R: CryptoRng + RngCore
     {
@@ -312,6 +377,8 @@ impl ContainedStreamKey {
         buf.extend_from_slice(&self.key);
     }
 
+    /// Decrypt a lockbox's individual parts. This is only used by the `StreamInterface` 
+    /// implementation.
     fn decrypt_parts(&self, recipient: &LockboxRecipient, parts: LockboxParts) -> Result<Vec<u8>, CryptoError> {
         // Verify this is the right key for this lockbox. It costs us little to do this, and saves 
         // us from potential logic errors
@@ -509,6 +576,59 @@ impl StreamInterface for ContainedStreamKey {
     }
 }
 
+/// An identifier for a corresponding [`StreamKey`]. It is primarily used to indicate lockboxes are 
+/// meant for that particular key.
+///
+/// This is derived through a hash of the key, given a set of specific hash parameters (see 
+/// [`crate::stream`]).
+///
+/// # Examples
+///
+/// A `StreamId` can be made publically visible:
+///
+/// ```
+/// # use fog_crypto::stream::*;
+///
+/// let mut csprng = rand::rngs::OsRng {};
+/// let key = StreamKey::new_temp(&mut csprng);
+/// let id = key.id();
+///
+/// println!("StreamId(Base58): {}", id);
+/// ```
+///
+/// It can also be used to identify a recipient of a lockbox:
+///
+/// ```
+/// # use std::convert::TryFrom;
+/// # use fog_crypto::stream::*;
+/// # use fog_crypto::lockbox::*;
+/// # let mut csprng = rand::rngs::OsRng {};
+/// #
+/// // We start with a known StreamKey
+/// let key = StreamKey::new_temp(&mut csprng);
+/// #
+/// # // Encrypt some data with the key, then turn it into a byte vector
+/// # let data = b"I am about to be enciphered, though you can't see me in here...";
+/// # let lockbox = key.encrypt_data(&mut csprng, data.as_ref());
+/// # let mut encoded = Vec::new();
+/// # encoded.extend_from_slice(lockbox.as_bytes());
+///
+/// // ...
+/// // We get the byte vector `encoded`, which might be a lockbox
+/// // ...
+///
+/// let dec_lockbox = DataLockbox::try_from(encoded.as_ref()).unwrap();
+/// let recipient = dec_lockbox.recipient();
+/// if let LockboxRecipient::StreamId(ref id) = dec_lockbox.recipient() {
+///     // Check to see if this matches the key's StreamId
+///     if id == key.id() {
+///         let dec_data: Vec<u8> = key.decrypt_data(&dec_lockbox).unwrap();
+///     }
+///     else {
+///         panic!("We were hoping this lockbox was for us!");
+///     }
+/// }
+/// ```
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct StreamId {
     inner: Vec<u8>

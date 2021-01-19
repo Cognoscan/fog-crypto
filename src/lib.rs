@@ -73,7 +73,7 @@
 //! The currently used algorithms are:
 //! 
 //! - Hashing: Blake2B with a 32-byte digest
-//! - Signing: Ed25519
+//! - Signing: Ed25519 with ["strict" verification][StrictVerification]
 //! - Symmetric Encryption: AEAD cipher using XChaCha20 and Poly1305.
 //! - Diffie-Hellman key exchange: X25519
 //! 
@@ -108,6 +108,8 @@
 //! We are almost certainly going to upgrade the signing and DH exchange algorithms in the future, 
 //! as we will need to move to post-quantum algorithms. There's no similar looming threat for the 
 //! hash & symmetric encryption algorithms.
+//!
+//! [StrictVerification]: https://docs.rs/ed25519-dalek/1.0.1/ed25519_dalek/struct.PublicKey.html#method.verify_strict
 
 mod error;
 pub use self::error::CryptoError;
