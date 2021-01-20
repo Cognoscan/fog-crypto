@@ -732,8 +732,188 @@ impl LockInterface for ContainedLockKey {
 mod tests {
     use super::*;
 
-    #[test]
-    fn lock_data() {
+    fn corrupt_version<F>(
+        mut enc: Vec<u8>,
+        check_decode: F,
+    )
+    where
+        F : Fn(&[u8]) -> bool,
+    {
+        // Version byte corruption
+        let version = enc[0];
+        enc[0] = 0;
+        assert!(!check_decode(&enc[..]));
+        enc[0] = 2;
+        assert!(!check_decode(&enc[..]));
+        enc[0] = version;
+        assert!(check_decode(&enc[..]));
+    }
+
+    fn corrupt_type<F1,F2>(
+        mut enc: Vec<u8>,
+        check_decode: F1,
+        check_decrypt: F2,
+    )
+    where
+        F1 : Fn(&[u8]) -> bool,
+        F2 : Fn(&[u8]) -> bool,
+    {
+        // Type byte corruption
+        enc[1] |= 0x80;
+        assert!(!check_decode(&enc[..]));
+        enc[1] &= 0x07;
+        assert!(check_decode(&enc[..]));
+        enc[1] = (enc[1] + 1) & 0x7; // First increment should still decode, but have bad recipient
+        assert!(!check_decrypt(&enc[..]));
+        for _ in 0..6 {
+            // Remaining increments should put it outside of expected lockbox type
+            enc[1] = (enc[1] + 1) & 0x7;
+            assert!(!check_decode(&enc[..]));
+        }
+        enc[1] = (enc[1] + 1) & 0x7;
+        assert!(check_decode(&enc[..]));
+    }
+
+    fn corrupt_id<F1, F2>(
+        mut enc: Vec<u8>,
+        check_decode: F1,
+        check_decrypt: F2,
+    )
+    where
+        F1 : Fn(&[u8]) -> bool,
+        F2 : Fn(&[u8]) -> bool,
+    {
+        // Identity corruption - 2 is ID version, 3 is first byte of ID
+        enc[2] = 0;
+        assert!(!check_decode(&enc[..]));
+        enc[2] = 2;
+        assert!(!check_decode(&enc[..]));
+        enc[2] = DEFAULT_LOCK_VERSION;
+        assert!(check_decode(&enc[..]));
+        enc[3] ^= 0xFF;
+        assert!(!check_decrypt(&enc[..]));
+        enc[3] ^= 0xFF;
+        assert!(check_decrypt(&enc[..]));
+    }
+
+    fn corrupt_ephemeral<F>(
+        mut enc: Vec<u8>,
+        check_decrypt: F,
+    )
+    where
+        F : Fn(&[u8]) -> bool,
+    {
+        // Ephemeral Key corruption - 35 is first byte of ephemeral public key
+        enc[35] ^= 0xFF;
+        assert!(!check_decrypt(&enc[..]));
+        enc[35] ^= 0xFF;
+        assert!(check_decrypt(&enc[..]));
+    }
+
+
+    fn corrupt_nonce<F>(
+        mut enc: Vec<u8>,
+        check_decrypt: F,
+    )
+    where
+        F : Fn(&[u8]) -> bool,
+    {
+        // Nonce corruption - 67 is first byte of the nonce
+        enc[67] ^= 0xFF;
+        assert!(!check_decrypt(&enc[..]));
+        enc[67] ^= 0xFF;
+        assert!(check_decrypt(&enc[..]));
+    }
+
+    fn corrupt_ciphertext<F>(
+        mut enc: Vec<u8>,
+        check_decrypt: F,
+    )
+    where
+        F : Fn(&[u8]) -> bool,
+    {
+        // Ciphertext corruption - 91 is first byte of ciphertext
+        enc[91] ^= 0xFF;
+        assert!(!check_decrypt(&enc[..]));
+        enc[91] ^= 0xFF;
+        assert!(check_decrypt(&enc[..]));
+    }
+
+    fn corrupt_tag<F>(
+        mut enc: Vec<u8>,
+        check_decrypt: F,
+    )
+    where
+        F : Fn(&[u8]) -> bool,
+    {
+        // Tag corruption - corrupt the last byte
+        let tag_end = enc.last_mut().unwrap();
+        *tag_end ^= 0xFF;
+        assert!(!check_decrypt(&enc[..]));
+        let tag_end = enc.last_mut().unwrap();
+        *tag_end ^= 0xFF;
+        assert!(check_decrypt(&enc[..]));
+    }
+
+    fn corrupt_length_extend<F>(
+        mut enc: Vec<u8>,
+        check_decrypt: F,
+    )
+    where
+        F : Fn(&[u8]) -> bool,
+    {
+        // Length extension
+        enc.push(0);
+        assert!(!check_decrypt(&enc[..]));
+        enc.pop();
+        assert!(check_decrypt(&enc[..]));
+    }
+
+    fn corrupt_truncation<F>(
+        mut enc: Vec<u8>,
+        check_decrypt: F,
+    )
+    where
+        F : Fn(&[u8]) -> bool,
+    {
+        // Early truncation
+        enc.pop();
+        assert!(!check_decrypt(&enc[..]));
+    }
+
+    fn corrupt_inner_version<F: Fn(&[u8]) -> bool>(
+        mut content: Vec<u8>,
+        check_sequence: F
+    )
+    {
+        // Corrupt the version byte
+        content[0] = 0u8;
+        assert!(!check_sequence(&content[..]));
+        // Corrupt the version byte differently
+        content[0] = 99u8;
+        assert!(!check_sequence(&content[..]));
+    }
+
+    fn corrupt_inner_length_extend<F: Fn(&[u8]) -> bool>(
+        mut content: Vec<u8>,
+        check_sequence: F
+    )
+    {
+        content.push(0u8);
+        assert!(!check_sequence(&content[..]));
+    }
+
+    fn corrupt_inner_truncate<F: Fn(&[u8]) -> bool>(
+        mut content: Vec<u8>,
+        check_sequence: F
+    )
+    {
+        content.pop();
+        assert!(!check_sequence(&content[..]));
+    }
+
+    fn setup_lock_data() -> (Vec<u8>, impl Fn(&[u8])->bool, impl Fn(&[u8])->bool)
+    {
         // Setup
         let mut csprng = rand::rngs::OsRng;
         let key = LockKey::new_temp(&mut csprng);
@@ -741,20 +921,95 @@ mod tests {
 
         // Encrypt
         let lockbox = key.id().encrypt_data(&mut csprng, message);
-        let expected_recipient = LockboxRecipient::LockId(key.id().clone());
-        assert_eq!(&expected_recipient, lockbox.recipient());
+        let recipient = LockboxRecipient::LockId(key.id().clone());
+        assert_eq!(&recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
-
-        // Decrypt
-        println!("Header = {:x?}", &enc[0..4]);
-        let dec_lockbox = DataLockbox::try_from(&enc[..]).unwrap();
-        assert_eq!(&expected_recipient, dec_lockbox.recipient());
-        let dec_message = key.decrypt_data(&dec_lockbox).unwrap();
-        assert_eq!(message, &dec_message[..]);
+        (
+            enc,
+            |enc| DataLockbox::try_from(enc).is_ok(),
+            move |enc| {
+                let dec_lockbox = if let Ok(d) = DataLockbox::try_from(enc) {
+                    d
+                }
+                else {
+                    return false;
+                };
+                if &LockboxRecipient::LockId(key.id().clone()) != dec_lockbox.recipient() {
+                    return false;
+                }
+                if let Ok(dec) = key.decrypt_data(&dec_lockbox) {
+                    dec == message
+                }
+                else {
+                    false
+                }
+            }
+        )
     }
 
     #[test]
-    fn lock_id_key() {
+    fn lock_data_clean_decrypt() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_data();
+        assert!(check_decrypt(&enc[..]));
+    }
+
+    #[test]
+    fn lock_data_corrupt_version() {
+        let (enc, check_decode, _check_decrypt) = setup_lock_data();
+        corrupt_version(enc, check_decode);
+    }
+
+    #[test]
+    fn lock_data_corrupt_type() {
+        let (enc, check_decode, check_decrypt) = setup_lock_data();
+        corrupt_type(enc, check_decode, check_decrypt);
+    }
+
+    #[test]
+    fn lock_data_corrupt_id() {
+        let (enc, check_decode, check_decrypt) = setup_lock_data();
+        corrupt_id(enc, check_decode, check_decrypt);
+    }
+
+    #[test]
+    fn lock_data_corrupt_ephemeral() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_data();
+        corrupt_ephemeral(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_data_corrupt_nonce() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_data();
+        corrupt_nonce(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_data_corrupt_ciphertext() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_data();
+        corrupt_ciphertext(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_data_corrupt_tag() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_data();
+        corrupt_tag(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_data_corrupt_length_extend() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_data();
+        corrupt_length_extend(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_data_corrupt_truncation() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_data();
+        corrupt_truncation(enc, check_decrypt);
+    }
+
+
+    fn setup_lock_id() -> (Vec<u8>, impl Fn(&[u8])->bool, impl Fn(&[u8])->bool)
+    {
         // Setup
         let mut csprng = rand::rngs::OsRng;
         let key = LockKey::new_temp(&mut csprng);
@@ -762,19 +1017,161 @@ mod tests {
 
         // Encrypt
         let lockbox = to_send.export_for_lock(&mut csprng, key.id()).unwrap();
-        let expected_recipient = LockboxRecipient::LockId(key.id().clone());
-        assert_eq!(&expected_recipient, lockbox.recipient());
+        let recipient = LockboxRecipient::LockId(key.id().clone());
+        assert_eq!(&recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
-
-        // Decrypt
-        let dec_lockbox = IdentityLockbox::try_from(&enc[..]).unwrap();
-        assert_eq!(&expected_recipient, dec_lockbox.recipient());
-        let dec_key = key.decrypt_identity_key(&dec_lockbox).unwrap();
-        assert_eq!(to_send.id(), dec_key.id());
+        (
+            enc,
+            |enc| IdentityLockbox::try_from(enc).is_ok(),
+            move |enc| {
+                let dec_lockbox = if let Ok(d) = IdentityLockbox::try_from(enc) {
+                    d
+                }
+                else {
+                    return false;
+                };
+                if &LockboxRecipient::LockId(key.id().clone()) != dec_lockbox.recipient() {
+                    return false;
+                }
+                if let Ok(dec) = key.decrypt_identity_key(&dec_lockbox) {
+                    dec.id() == to_send.id()
+                }
+                else {
+                    false
+                }
+            }
+        )
     }
 
     #[test]
-    fn lock_stream_key() {
+    fn lock_id_clean_decrypt() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_id();
+        assert!(check_decrypt(&enc[..]));
+    }
+
+    #[test]
+    fn lock_id_corrupt_version() {
+        let (enc, check_decode, _check_decrypt) = setup_lock_id();
+        corrupt_version(enc, check_decode);
+    }
+
+    #[test]
+    fn lock_id_corrupt_type() {
+        let (enc, check_decode, check_decrypt) = setup_lock_id();
+        corrupt_type(enc, check_decode, check_decrypt);
+    }
+
+    #[test]
+    fn lock_id_corrupt_id() {
+        let (enc, check_decode, check_decrypt) = setup_lock_id();
+        corrupt_id(enc, check_decode, check_decrypt);
+    }
+
+    #[test]
+    fn lock_id_corrupt_ephemeral() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_id();
+        corrupt_ephemeral(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_id_corrupt_nonce() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_id();
+        corrupt_nonce(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_id_corrupt_ciphertext() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_id();
+        corrupt_ciphertext(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_id_corrupt_tag() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_id();
+        corrupt_tag(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_id_corrupt_length_extend() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_id();
+        corrupt_length_extend(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_id_corrupt_truncation() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_id();
+        corrupt_truncation(enc, check_decrypt);
+    }
+
+    fn setup_lock_id_raw() -> (Vec<u8>, impl Fn(&[u8])->bool)
+    {
+        use crate::identity::SignInterface;
+        // Setup
+        let mut csprng = rand::rngs::OsRng;
+        let key = LockKey::new_temp(&mut csprng);
+        let to_send = crate::ContainedIdKey::generate(&mut csprng);
+
+        // Encrypt
+        let mut content = Vec::new();
+        to_send.encode_vec(&mut content);
+
+        (
+            content,
+            move |content| {
+                let mut csprng = rand::rngs::OsRng;
+                let lockbox = identity_lockbox_from_parts(
+                    LockboxRecipient::LockId(key.id().clone()),
+                    crate::lock::lock_id_encrypt(
+                        key.id(),
+                        &mut csprng,
+                        crate::lockbox::LockboxType::Identity(false),
+                        &content[..]
+                    )
+                );
+                let enc = Vec::from(lockbox.as_bytes());
+                let lockbox = if let Ok(l) = IdentityLockbox::try_from(&enc[..]) {
+                    l
+                }
+                else {
+                    return false;
+                };
+                if let Ok(dec) = key.decrypt_identity_key(&lockbox) {
+                    dec.id() == to_send.id()
+                }
+                else {
+                    false
+                }
+            }
+        )
+    }
+
+    #[test]
+    fn lock_id_inner_ok() {
+        let (content, check_sequence) = setup_lock_id_raw();
+        assert!(check_sequence(&content[..]));
+    }
+
+    #[test]
+    fn lock_id_corrupt_inner_version() {
+        let (content, check_sequence) = setup_lock_id_raw();
+        corrupt_inner_version(content, check_sequence);
+    }
+
+    #[test]
+    fn lock_id_corrupt_inner_length_extend() {
+        let (content, check_sequence) = setup_lock_id_raw();
+        corrupt_inner_length_extend(content, check_sequence);
+    }
+
+    #[test]
+    fn lock_id_corrupt_inner_truncate() {
+        let (content, check_sequence) = setup_lock_id_raw();
+        corrupt_inner_truncate(content, check_sequence);
+    }
+
+
+    fn setup_lock_stream() -> (Vec<u8>, impl Fn(&[u8])->bool, impl Fn(&[u8])->bool)
+    {
         // Setup
         let mut csprng = rand::rngs::OsRng;
         let key = LockKey::new_temp(&mut csprng);
@@ -782,19 +1179,161 @@ mod tests {
 
         // Encrypt
         let lockbox = to_send.export_for_lock(&mut csprng, key.id()).unwrap();
-        let expected_recipient = LockboxRecipient::LockId(key.id().clone());
-        assert_eq!(&expected_recipient, lockbox.recipient());
+        let recipient = LockboxRecipient::LockId(key.id().clone());
+        assert_eq!(&recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
-
-        // Decrypt
-        let dec_lockbox = StreamLockbox::try_from(&enc[..]).unwrap();
-        assert_eq!(&expected_recipient, dec_lockbox.recipient());
-        let dec_key = key.decrypt_stream_key(&dec_lockbox).unwrap();
-        assert_eq!(to_send.id(), dec_key.id());
+        (
+            enc,
+            |enc| StreamLockbox::try_from(enc).is_ok(),
+            move |enc| {
+                let dec_lockbox = if let Ok(d) = StreamLockbox::try_from(enc) {
+                    d
+                }
+                else {
+                    return false;
+                };
+                if &LockboxRecipient::LockId(key.id().clone()) != dec_lockbox.recipient() {
+                    return false;
+                }
+                if let Ok(dec) = key.decrypt_stream_key(&dec_lockbox) {
+                    dec.id() == to_send.id()
+                }
+                else {
+                    false
+                }
+            }
+        )
     }
 
     #[test]
-    fn lock_lock_key() {
+    fn lock_stream_clean_decrypt() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_stream();
+        assert!(check_decrypt(&enc[..]));
+    }
+
+    #[test]
+    fn lock_stream_corrupt_version() {
+        let (enc, check_decode, _check_decrypt) = setup_lock_stream();
+        corrupt_version(enc, check_decode);
+    }
+
+    #[test]
+    fn lock_stream_corrupt_type() {
+        let (enc, check_decode, check_decrypt) = setup_lock_stream();
+        corrupt_type(enc, check_decode, check_decrypt);
+    }
+
+    #[test]
+    fn lock_stream_corrupt_id() {
+        let (enc, check_decode, check_decrypt) = setup_lock_stream();
+        corrupt_id(enc, check_decode, check_decrypt);
+    }
+
+    #[test]
+    fn lock_stream_corrupt_ephemeral() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_stream();
+        corrupt_ephemeral(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_stream_corrupt_nonce() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_stream();
+        corrupt_nonce(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_stream_corrupt_ciphertext() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_stream();
+        corrupt_ciphertext(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_stream_corrupt_tag() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_stream();
+        corrupt_tag(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_stream_corrupt_length_extend() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_stream();
+        corrupt_length_extend(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_stream_corrupt_truncation() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_stream();
+        corrupt_truncation(enc, check_decrypt);
+    }
+
+    fn setup_lock_stream_raw() -> (Vec<u8>, impl Fn(&[u8])->bool)
+    {
+        use crate::stream::StreamInterface;
+        // Setup
+        let mut csprng = rand::rngs::OsRng;
+        let key = LockKey::new_temp(&mut csprng);
+        let to_send = crate::ContainedStreamKey::generate(&mut csprng);
+
+        // Encrypt
+        let mut content = Vec::new();
+        to_send.encode_vec(&mut content);
+
+        (
+            content,
+            move |content| {
+                let mut csprng = rand::rngs::OsRng;
+                let lockbox = stream_lockbox_from_parts(
+                    LockboxRecipient::LockId(key.id().clone()),
+                    crate::lock::lock_id_encrypt(
+                        key.id(),
+                        &mut csprng,
+                        crate::lockbox::LockboxType::Stream(false),
+                        &content[..]
+                    )
+                );
+                let enc = Vec::from(lockbox.as_bytes());
+                let lockbox = if let Ok(l) = StreamLockbox::try_from(&enc[..]) {
+                    l
+                }
+                else {
+                    return false;
+                };
+                if let Ok(dec) = key.decrypt_stream_key(&lockbox) {
+                    dec.id() == to_send.id()
+                }
+                else {
+                    false
+                }
+            }
+        )
+    }
+
+    #[test]
+    fn lock_stream_inner_ok() {
+        let (content, check_sequence) = setup_lock_stream_raw();
+        assert!(check_sequence(&content[..]));
+    }
+
+    #[test]
+    fn lock_stream_corrupt_inner_version() {
+        let (content, check_sequence) = setup_lock_stream_raw();
+        corrupt_inner_version(content, check_sequence);
+    }
+
+    #[test]
+    fn lock_stream_corrupt_inner_length_extend() {
+        let (content, check_sequence) = setup_lock_stream_raw();
+        corrupt_inner_length_extend(content, check_sequence);
+    }
+
+    #[test]
+    fn lock_stream_corrupt_inner_truncate() {
+        let (content, check_sequence) = setup_lock_stream_raw();
+        corrupt_inner_truncate(content, check_sequence);
+    }
+
+
+    fn setup_lock_lock() -> (Vec<u8>, impl Fn(&[u8])->bool, impl Fn(&[u8])->bool)
+    {
         // Setup
         let mut csprng = rand::rngs::OsRng;
         let key = LockKey::new_temp(&mut csprng);
@@ -802,15 +1341,154 @@ mod tests {
 
         // Encrypt
         let lockbox = to_send.export_for_lock(&mut csprng, key.id()).unwrap();
-        let expected_recipient = LockboxRecipient::LockId(key.id().clone());
-        assert_eq!(&expected_recipient, lockbox.recipient());
+        let recipient = LockboxRecipient::LockId(key.id().clone());
+        assert_eq!(&recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
-
-        // Decrypt
-        let dec_lockbox = LockLockbox::try_from(&enc[..]).unwrap();
-        assert_eq!(&expected_recipient, dec_lockbox.recipient());
-        let dec_key = key.decrypt_lock_key(&dec_lockbox).unwrap();
-        assert_eq!(to_send.id(), dec_key.id());
+        (
+            enc,
+            |enc| LockLockbox::try_from(enc).is_ok(),
+            move |enc| {
+                let dec_lockbox = if let Ok(d) = LockLockbox::try_from(enc) {
+                    d
+                }
+                else {
+                    return false;
+                };
+                if &LockboxRecipient::LockId(key.id().clone()) != dec_lockbox.recipient() {
+                    return false;
+                }
+                if let Ok(dec) = key.decrypt_lock_key(&dec_lockbox) {
+                    dec.id() == to_send.id()
+                }
+                else {
+                    false
+                }
+            }
+        )
     }
 
+    #[test]
+    fn lock_lock_clean_decrypt() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_lock();
+        assert!(check_decrypt(&enc[..]));
+    }
+
+    #[test]
+    fn lock_lock_corrupt_version() {
+        let (enc, check_decode, _check_decrypt) = setup_lock_lock();
+        corrupt_version(enc, check_decode);
+    }
+
+    #[test]
+    fn lock_lock_corrupt_type() {
+        let (enc, check_decode, check_decrypt) = setup_lock_lock();
+        corrupt_type(enc, check_decode, check_decrypt);
+    }
+
+    #[test]
+    fn lock_lock_corrupt_id() {
+        let (enc, check_decode, check_decrypt) = setup_lock_lock();
+        corrupt_id(enc, check_decode, check_decrypt);
+    }
+
+    #[test]
+    fn lock_lock_corrupt_ephemeral() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_lock();
+        corrupt_ephemeral(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_lock_corrupt_nonce() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_lock();
+        corrupt_nonce(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_lock_corrupt_ciphertext() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_lock();
+        corrupt_ciphertext(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_lock_corrupt_tag() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_lock();
+        corrupt_tag(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_lock_corrupt_length_extend() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_lock();
+        corrupt_length_extend(enc, check_decrypt);
+    }
+
+    #[test]
+    fn lock_lock_corrupt_truncation() {
+        let (enc, _check_decode, check_decrypt) = setup_lock_lock();
+        corrupt_truncation(enc, check_decrypt);
+    }
+
+    fn setup_lock_lock_raw() -> (Vec<u8>, impl Fn(&[u8])->bool)
+    {
+        // Setup
+        let mut csprng = rand::rngs::OsRng;
+        let key = LockKey::new_temp(&mut csprng);
+        let to_send = crate::ContainedLockKey::generate(&mut csprng);
+
+        // Encrypt
+        let mut content = Vec::new();
+        to_send.encode_vec(&mut content);
+
+        (
+            content,
+            move |content| {
+                let mut csprng = rand::rngs::OsRng;
+                let lockbox = lock_lockbox_from_parts(
+                    LockboxRecipient::LockId(key.id().clone()),
+                    crate::lock::lock_id_encrypt(
+                        key.id(),
+                        &mut csprng,
+                        crate::lockbox::LockboxType::Lock(false),
+                        &content[..]
+                    )
+                );
+                let enc = Vec::from(lockbox.as_bytes());
+                let lockbox = if let Ok(l) = LockLockbox::try_from(&enc[..]) {
+                    l
+                }
+                else {
+                    return false;
+                };
+                if let Ok(dec) = key.decrypt_lock_key(&lockbox) {
+                    dec.id() == to_send.id()
+                }
+                else {
+                    false
+                }
+            }
+        )
+    }
+
+    #[test]
+    fn lock_lock_inner_ok() {
+        let (content, check_sequence) = setup_lock_lock_raw();
+        assert!(check_sequence(&content[..]));
+    }
+
+    #[test]
+    fn lock_lock_corrupt_inner_version() {
+        let (content, check_sequence) = setup_lock_lock_raw();
+        corrupt_inner_version(content, check_sequence);
+    }
+
+    #[test]
+    fn lock_lock_corrupt_inner_length_extend() {
+        let (content, check_sequence) = setup_lock_lock_raw();
+        corrupt_inner_length_extend(content, check_sequence);
+    }
+
+    #[test]
+    fn lock_lock_corrupt_inner_truncate() {
+        let (content, check_sequence) = setup_lock_lock_raw();
+        corrupt_inner_truncate(content, check_sequence);
+    }
 }
