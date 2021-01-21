@@ -1003,7 +1003,7 @@ mod tests {
         assert!(!check_sequence(&content[..]));
     }
 
-    fn setup_lock_data() -> (Vec<u8>, impl Fn(&[u8])->bool, impl Fn(&[u8])->bool)
+    fn setup_data() -> (Vec<u8>, impl Fn(&[u8])->bool, impl Fn(&[u8])->bool)
     {
         // Setup
         let mut csprng = rand::rngs::OsRng;
@@ -1039,73 +1039,73 @@ mod tests {
     }
 
     #[test]
-    fn lock_data_clean_decrypt() {
-        let (enc, _check_decode, check_decrypt) = setup_lock_data();
+    fn data_clean_decrypt() {
+        let (enc, _check_decode, check_decrypt) = setup_data();
         assert!(check_decrypt(&enc[..]));
     }
 
     #[test]
-    fn lock_data_corrupt_version() {
-        let (enc, check_decode, check_decrypt) = setup_lock_data();
+    fn data_corrupt_version() {
+        let (enc, check_decode, check_decrypt) = setup_data();
         corrupt_version(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_data_corrupt_type() {
-        let (enc, check_decode, check_decrypt) = setup_lock_data();
+    fn data_corrupt_type() {
+        let (enc, check_decode, check_decrypt) = setup_data();
         corrupt_type(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_data_corrupt_id() {
-        let (enc, check_decode, check_decrypt) = setup_lock_data();
+    fn data_corrupt_id() {
+        let (enc, check_decode, check_decrypt) = setup_data();
         corrupt_id(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_data_corrupt_ephemeral() {
-        let (enc, check_decode, check_decrypt) = setup_lock_data();
+    fn data_corrupt_ephemeral() {
+        let (enc, check_decode, check_decrypt) = setup_data();
         corrupt_ephemeral(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_data_corrupt_nonce() {
-        let (enc, check_decode, check_decrypt) = setup_lock_data();
+    fn data_corrupt_nonce() {
+        let (enc, check_decode, check_decrypt) = setup_data();
         corrupt_nonce(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_data_corrupt_ciphertext() {
-        let (enc, check_decode, check_decrypt) = setup_lock_data();
+    fn data_corrupt_ciphertext() {
+        let (enc, check_decode, check_decrypt) = setup_data();
         corrupt_ciphertext(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_data_corrupt_tag() {
-        let (enc, check_decode, check_decrypt) = setup_lock_data();
+    fn data_corrupt_tag() {
+        let (enc, check_decode, check_decrypt) = setup_data();
         corrupt_tag(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_data_corrupt_length_extend() {
-        let (enc, check_decode, check_decrypt) = setup_lock_data();
+    fn data_corrupt_length_extend() {
+        let (enc, check_decode, check_decrypt) = setup_data();
         corrupt_length_extend(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_data_corrupt_truncation() {
-        let (enc, check_decode, check_decrypt) = setup_lock_data();
+    fn data_corrupt_truncation() {
+        let (enc, check_decode, check_decrypt) = setup_data();
         corrupt_truncation(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_data_corrupt_each_byte() {
-        let (enc, check_decode, check_decrypt) = setup_lock_data();
+    fn data_corrupt_each_byte() {
+        let (enc, check_decode, check_decrypt) = setup_data();
         corrupt_each_byte(enc, check_decode, check_decrypt);
     }
 
 
-    fn setup_lock_id() -> (Vec<u8>, impl Fn(&[u8])->bool, impl Fn(&[u8])->bool)
+    fn setup_id() -> (Vec<u8>, impl Fn(&[u8])->bool, impl Fn(&[u8])->bool)
     {
         // Setup
         let mut csprng = rand::rngs::OsRng;
@@ -1141,72 +1141,72 @@ mod tests {
     }
 
     #[test]
-    fn lock_id_clean_decrypt() {
-        let (enc, _check_decode, check_decrypt) = setup_lock_id();
+    fn id_clean_decrypt() {
+        let (enc, _check_decode, check_decrypt) = setup_id();
         assert!(check_decrypt(&enc[..]));
     }
 
     #[test]
-    fn lock_id_corrupt_version() {
-        let (enc, check_decode, check_decrypt) = setup_lock_id();
+    fn id_corrupt_version() {
+        let (enc, check_decode, check_decrypt) = setup_id();
         corrupt_version(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_id_corrupt_type() {
-        let (enc, check_decode, check_decrypt) = setup_lock_id();
+    fn id_corrupt_type() {
+        let (enc, check_decode, check_decrypt) = setup_id();
         corrupt_type(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_id_corrupt_id() {
-        let (enc, check_decode, check_decrypt) = setup_lock_id();
+    fn id_corrupt_id() {
+        let (enc, check_decode, check_decrypt) = setup_id();
         corrupt_id(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_id_corrupt_ephemeral() {
-        let (enc, check_decode, check_decrypt) = setup_lock_id();
+    fn id_corrupt_ephemeral() {
+        let (enc, check_decode, check_decrypt) = setup_id();
         corrupt_ephemeral(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_id_corrupt_nonce() {
-        let (enc, check_decode, check_decrypt) = setup_lock_id();
+    fn id_corrupt_nonce() {
+        let (enc, check_decode, check_decrypt) = setup_id();
         corrupt_nonce(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_id_corrupt_ciphertext() {
-        let (enc, check_decode, check_decrypt) = setup_lock_id();
+    fn id_corrupt_ciphertext() {
+        let (enc, check_decode, check_decrypt) = setup_id();
         corrupt_ciphertext(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_id_corrupt_tag() {
-        let (enc, check_decode, check_decrypt) = setup_lock_id();
+    fn id_corrupt_tag() {
+        let (enc, check_decode, check_decrypt) = setup_id();
         corrupt_tag(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_id_corrupt_length_extend() {
-        let (enc, check_decode, check_decrypt) = setup_lock_id();
+    fn id_corrupt_length_extend() {
+        let (enc, check_decode, check_decrypt) = setup_id();
         corrupt_length_extend(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_id_corrupt_truncation() {
-        let (enc, check_decode, check_decrypt) = setup_lock_id();
+    fn id_corrupt_truncation() {
+        let (enc, check_decode, check_decrypt) = setup_id();
         corrupt_truncation(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_id_corrupt_each_byte() {
-        let (enc, check_decode, check_decrypt) = setup_lock_id();
+    fn id_corrupt_each_byte() {
+        let (enc, check_decode, check_decrypt) = setup_id();
         corrupt_each_byte(enc, check_decode, check_decrypt);
     }
 
-    fn setup_lock_id_raw() -> (Vec<u8>, impl Fn(&[u8])->bool)
+    fn setup_id_raw() -> (Vec<u8>, impl Fn(&[u8])->bool)
     {
         use crate::identity::SignInterface;
         // Setup
@@ -1249,26 +1249,26 @@ mod tests {
     }
 
     #[test]
-    fn lock_id_inner_ok() {
-        let (content, check_sequence) = setup_lock_id_raw();
+    fn id_inner_ok() {
+        let (content, check_sequence) = setup_id_raw();
         assert!(check_sequence(&content[..]));
     }
 
     #[test]
-    fn lock_id_corrupt_inner_version() {
-        let (content, check_sequence) = setup_lock_id_raw();
+    fn id_corrupt_inner_version() {
+        let (content, check_sequence) = setup_id_raw();
         corrupt_inner_version(content, check_sequence);
     }
 
     #[test]
-    fn lock_id_corrupt_inner_length_extend() {
-        let (content, check_sequence) = setup_lock_id_raw();
+    fn id_corrupt_inner_length_extend() {
+        let (content, check_sequence) = setup_id_raw();
         corrupt_inner_length_extend(content, check_sequence);
     }
 
     #[test]
-    fn lock_id_corrupt_inner_truncate() {
-        let (content, check_sequence) = setup_lock_id_raw();
+    fn id_corrupt_inner_truncate() {
+        let (content, check_sequence) = setup_id_raw();
         corrupt_inner_truncate(content, check_sequence);
     }
 
@@ -1309,67 +1309,67 @@ mod tests {
     }
 
     #[test]
-    fn lock_stream_clean_decrypt() {
+    fn stream_clean_decrypt() {
         let (enc, _check_decode, check_decrypt) = setup_lock_stream();
         assert!(check_decrypt(&enc[..]));
     }
 
     #[test]
-    fn lock_stream_corrupt_version() {
+    fn stream_corrupt_version() {
         let (enc, check_decode, check_decrypt) = setup_lock_stream();
         corrupt_version(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_stream_corrupt_type() {
+    fn stream_corrupt_type() {
         let (enc, check_decode, check_decrypt) = setup_lock_stream();
         corrupt_type(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_stream_corrupt_id() {
+    fn stream_corrupt_id() {
         let (enc, check_decode, check_decrypt) = setup_lock_stream();
         corrupt_id(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_stream_corrupt_ephemeral() {
+    fn stream_corrupt_ephemeral() {
         let (enc, check_decode, check_decrypt) = setup_lock_stream();
         corrupt_ephemeral(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_stream_corrupt_nonce() {
+    fn stream_corrupt_nonce() {
         let (enc, check_decode, check_decrypt) = setup_lock_stream();
         corrupt_nonce(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_stream_corrupt_ciphertext() {
+    fn stream_corrupt_ciphertext() {
         let (enc, check_decode, check_decrypt) = setup_lock_stream();
         corrupt_ciphertext(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_stream_corrupt_tag() {
+    fn stream_corrupt_tag() {
         let (enc, check_decode, check_decrypt) = setup_lock_stream();
         corrupt_tag(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_stream_corrupt_length_extend() {
+    fn stream_corrupt_length_extend() {
         let (enc, check_decode, check_decrypt) = setup_lock_stream();
         corrupt_length_extend(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_stream_corrupt_truncation() {
+    fn stream_corrupt_truncation() {
         let (enc, check_decode, check_decrypt) = setup_lock_stream();
         corrupt_truncation(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_stream_corrupt_each_byte() {
+    fn stream_corrupt_each_byte() {
         let (enc, check_decode, check_decrypt) = setup_lock_stream();
         corrupt_each_byte(enc, check_decode, check_decrypt);
     }
@@ -1417,31 +1417,31 @@ mod tests {
     }
 
     #[test]
-    fn lock_stream_inner_ok() {
+    fn stream_inner_ok() {
         let (content, check_sequence) = setup_lock_stream_raw();
         assert!(check_sequence(&content[..]));
     }
 
     #[test]
-    fn lock_stream_corrupt_inner_version() {
+    fn stream_corrupt_inner_version() {
         let (content, check_sequence) = setup_lock_stream_raw();
         corrupt_inner_version(content, check_sequence);
     }
 
     #[test]
-    fn lock_stream_corrupt_inner_length_extend() {
+    fn stream_corrupt_inner_length_extend() {
         let (content, check_sequence) = setup_lock_stream_raw();
         corrupt_inner_length_extend(content, check_sequence);
     }
 
     #[test]
-    fn lock_stream_corrupt_inner_truncate() {
+    fn stream_corrupt_inner_truncate() {
         let (content, check_sequence) = setup_lock_stream_raw();
         corrupt_inner_truncate(content, check_sequence);
     }
 
 
-    fn setup_lock_lock() -> (Vec<u8>, impl Fn(&[u8])->bool, impl Fn(&[u8])->bool)
+    fn setup_lock() -> (Vec<u8>, impl Fn(&[u8])->bool, impl Fn(&[u8])->bool)
     {
         // Setup
         let mut csprng = rand::rngs::OsRng;
@@ -1477,72 +1477,72 @@ mod tests {
     }
 
     #[test]
-    fn lock_lock_clean_decrypt() {
-        let (enc, _check_decode, check_decrypt) = setup_lock_lock();
+    fn lock_clean_decrypt() {
+        let (enc, _check_decode, check_decrypt) = setup_lock();
         assert!(check_decrypt(&enc[..]));
     }
 
     #[test]
-    fn lock_lock_corrupt_version() {
-        let (enc, check_decode, check_decrypt) = setup_lock_lock();
+    fn lock_corrupt_version() {
+        let (enc, check_decode, check_decrypt) = setup_lock();
         corrupt_version(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_lock_corrupt_type() {
-        let (enc, check_decode, check_decrypt) = setup_lock_lock();
+    fn lock_corrupt_type() {
+        let (enc, check_decode, check_decrypt) = setup_lock();
         corrupt_type(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_lock_corrupt_id() {
-        let (enc, check_decode, check_decrypt) = setup_lock_lock();
+    fn lock_corrupt_id() {
+        let (enc, check_decode, check_decrypt) = setup_lock();
         corrupt_id(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_lock_corrupt_ephemeral() {
-        let (enc, check_decode, check_decrypt) = setup_lock_lock();
+    fn lock_corrupt_ephemeral() {
+        let (enc, check_decode, check_decrypt) = setup_lock();
         corrupt_ephemeral(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_lock_corrupt_nonce() {
-        let (enc, check_decode, check_decrypt) = setup_lock_lock();
+    fn lock_corrupt_nonce() {
+        let (enc, check_decode, check_decrypt) = setup_lock();
         corrupt_nonce(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_lock_corrupt_ciphertext() {
-        let (enc, check_decode, check_decrypt) = setup_lock_lock();
+    fn lock_corrupt_ciphertext() {
+        let (enc, check_decode, check_decrypt) = setup_lock();
         corrupt_ciphertext(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_lock_corrupt_tag() {
-        let (enc, check_decode, check_decrypt) = setup_lock_lock();
+    fn lock_corrupt_tag() {
+        let (enc, check_decode, check_decrypt) = setup_lock();
         corrupt_tag(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_lock_corrupt_length_extend() {
-        let (enc, check_decode, check_decrypt) = setup_lock_lock();
+    fn lock_corrupt_length_extend() {
+        let (enc, check_decode, check_decrypt) = setup_lock();
         corrupt_length_extend(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_lock_corrupt_truncation() {
-        let (enc, check_decode, check_decrypt) = setup_lock_lock();
+    fn lock_corrupt_truncation() {
+        let (enc, check_decode, check_decrypt) = setup_lock();
         corrupt_truncation(enc, check_decode, check_decrypt);
     }
 
     #[test]
-    fn lock_lock_corrupt_each_byte() {
-        let (enc, check_decode, check_decrypt) = setup_lock_lock();
+    fn lock_corrupt_each_byte() {
+        let (enc, check_decode, check_decrypt) = setup_lock();
         corrupt_each_byte(enc, check_decode, check_decrypt);
     }
 
-    fn setup_lock_lock_raw() -> (Vec<u8>, impl Fn(&[u8])->bool)
+    fn setup_lock_raw() -> (Vec<u8>, impl Fn(&[u8])->bool)
     {
         // Setup
         let mut csprng = rand::rngs::OsRng;
@@ -1584,26 +1584,26 @@ mod tests {
     }
 
     #[test]
-    fn lock_lock_inner_ok() {
-        let (content, check_sequence) = setup_lock_lock_raw();
+    fn lock_inner_ok() {
+        let (content, check_sequence) = setup_lock_raw();
         assert!(check_sequence(&content[..]));
     }
 
     #[test]
-    fn lock_lock_corrupt_inner_version() {
-        let (content, check_sequence) = setup_lock_lock_raw();
+    fn lock_corrupt_inner_version() {
+        let (content, check_sequence) = setup_lock_raw();
         corrupt_inner_version(content, check_sequence);
     }
 
     #[test]
-    fn lock_lock_corrupt_inner_length_extend() {
-        let (content, check_sequence) = setup_lock_lock_raw();
+    fn lock_corrupt_inner_length_extend() {
+        let (content, check_sequence) = setup_lock_raw();
         corrupt_inner_length_extend(content, check_sequence);
     }
 
     #[test]
-    fn lock_lock_corrupt_inner_truncate() {
-        let (content, check_sequence) = setup_lock_lock_raw();
+    fn lock_corrupt_inner_truncate() {
+        let (content, check_sequence) = setup_lock_raw();
         corrupt_inner_truncate(content, check_sequence);
     }
 }
