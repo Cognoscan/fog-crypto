@@ -11,7 +11,7 @@ available primitives are:
 - `Hash`: a cryptographic hash of a byte sequence. It can be incrementally 
 	generated using a `HashState`.
 - `StreamKey`: A symmetric key for encrypting/decrypting a block of bytes. 
-- Identical byte blocks do not produce identical ciphertexts.
+  Identical byte blocks do not produce identical ciphertexts.
 - `Key`: A private key for signing or decrypting a block of bytes. Has an 
 	associated `Identity`.
 - `Identity`: A public key for verifying a signature or encrypting a block of 
