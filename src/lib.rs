@@ -193,15 +193,15 @@ pub trait Vault {
 
     /// Attempt to decrypt a `LockLockbox` using any of the `LockKey` and `StreamKey` instances 
     /// stored. On success, the new `LockKey` is stored in the vault under the provided name.
-    fn decrypt_lock_key(&self, name: String, lock: &LockLockbox) -> Result<LockKey,CryptoError>;
+    fn decrypt_lock_key(&self, name: String, lock: &LockLockboxRef) -> Result<LockKey,CryptoError>;
 
     /// Attempt to decrypt a `IdentityLockbox` using any of the `LockKey` and `StreamKey` instances 
     /// stored. On success, the new `IdentityKey` is stored in the vault under the provided name.
-    fn decrypt_identity_key(&self, name: String, lock: &IdentityLockbox) -> Result<IdentityKey,CryptoError>;
+    fn decrypt_identity_key(&self, name: String, lock: &IdentityLockboxRef) -> Result<IdentityKey,CryptoError>;
 
     /// Attempt to decrypt a `StreamLockbox` using any of the `LockKey` and `StreamKey` instances 
     /// stored. On success, the new `StreamKey` is stored in the vault under the provided name.
-    fn decrypt_stream_key(&self, name: String, lock: &StreamLockbox) -> Result<StreamKey,CryptoError>;
+    fn decrypt_stream_key(&self, name: String, lock: &StreamLockboxRef) -> Result<StreamKey,CryptoError>;
 
     /// Attempt to decrypt a `StreamLockbox` using any of the `LockKey` and `StreamKey` instances 
     /// stored.

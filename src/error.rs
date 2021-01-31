@@ -38,7 +38,7 @@ impl fmt::Display for CryptoError {
             CryptoError::DecryptFailed =>
                 write!(f, "Could not decrypt with key"),
             CryptoError::BadLength{step, actual, expected} =>
-                write!(f, "Expected data length {}, but got {} on step \"{}\"", expected, actual, step),
+                write!(f, "Expected data length {}, but got {} on step [{}]", expected, actual, step),
             CryptoError::BadKey =>
                 write!(f, "Crypto key is weak or invalid"),
             CryptoError::BadFormat(s) =>

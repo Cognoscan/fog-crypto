@@ -489,7 +489,6 @@ impl SignInterface for ContainedIdKey {
         raw_secret.zeroize();
         debug_assert!(raw_secret.iter().all(|&x| x == 0)); // You didn't remove the zeroize call, right?
         Some(identity_lockbox_from_parts(
-            LockboxRecipient::LockId(receive_lock.clone()),
             lockbox_vec,
         ))
     }
@@ -505,7 +504,6 @@ impl SignInterface for ContainedIdKey {
         raw_secret.zeroize();
         debug_assert!(raw_secret.iter().all(|&x| x == 0)); // You didn't remove the zeroize call, right?
         Some(identity_lockbox_from_parts(
-            LockboxRecipient::StreamId(receive_stream.id().clone()),
             lockbox_vec,
         ))
     }

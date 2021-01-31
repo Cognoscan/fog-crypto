@@ -7,7 +7,6 @@
 //! # Example
 //!
 //! ```
-//! # use std::convert::TryFrom;
 //! # use fog_crypto::stream::*;
 //! # use fog_crypto::lockbox::*;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -26,7 +25,7 @@
 //! encoded.extend_from_slice(lockbox.as_bytes());
 //!
 //! // Decrypt that data with the same key
-//! let dec_lockbox = DataLockbox::try_from(encoded.as_ref())?;
+//! let dec_lockbox = DataLockboxRef::from_bytes(encoded.as_ref())?;
 //! let dec_data = key.decrypt_data(&dec_lockbox)?;
 //! # Ok(())
 //! # }
@@ -119,8 +118,8 @@ pub(crate) fn stream_id_size(_version: u8) -> usize {
 /// encoded.extend_from_slice(lockbox.as_bytes());
 ///
 /// // Decrypt that data with the same key
-/// let dec_lockbox = DataLockbox::try_from(encoded.as_ref())?;
-/// let dec_data = key.decrypt_data(&dec_lockbox)?;
+/// let dec_lockbox = DataLockboxRef::from_bytes(encoded.as_ref())?;
+/// let dec_data = key.decrypt_data(dec_lockbox)?;
 /// # Ok(())
 /// # }
 /// ```
@@ -166,34 +165,33 @@ impl StreamKey {
         content: &[u8]
     ) -> DataLockbox {
         data_lockbox_from_parts(
-            LockboxRecipient::StreamId(self.id().clone()),
             self.interface.encrypt(csprng, LockboxType::Data(true), content)
         )
     }
 
-    /// Attempt to decrypt a `LockLockbox` with this key. On success, the returned `LockKey` is
+    /// Attempt to decrypt a `LockLockboxRef` with this key. On success, the returned `LockKey` is
     /// temporary and not associated with any Vault.
-    pub fn decrypt_lock_key(&self, lockbox: &LockLockbox) -> Result<LockKey, CryptoError> {
+    pub fn decrypt_lock_key(&self, lockbox: &LockLockboxRef) -> Result<LockKey, CryptoError> {
         self.interface.decrypt_lock_key(lockbox)
     }
 
-    /// Attempt to decrypt a `IdentityLockbox` with this key. On success, the returned
+    /// Attempt to decrypt a `IdentityLockboxRef` with this key. On success, the returned
     /// `IdentityKey` is temporary and not associated with any Vault.
     pub fn decrypt_identity_key(
         &self,
-        lockbox: &IdentityLockbox,
+        lockbox: &IdentityLockboxRef,
     ) -> Result<IdentityKey, CryptoError> {
         self.interface.decrypt_identity_key(lockbox)
     }
 
-    /// Attempt to decrypt a `StreamLockbox` with this key. On success, the returned
+    /// Attempt to decrypt a `StreamLockboxRef` with this key. On success, the returned
     /// `StreamKey` is temporary and not associated with any Vault.
-    pub fn decrypt_stream_key(&self, lockbox: &StreamLockbox) -> Result<StreamKey, CryptoError> {
+    pub fn decrypt_stream_key(&self, lockbox: &StreamLockboxRef) -> Result<StreamKey, CryptoError> {
         self.interface.decrypt_stream_key(lockbox)
     }
 
-    /// Attempt to decrypt a `DataLockbox` with this key.
-    pub fn decrypt_data(&self, lockbox: &DataLockbox) -> Result<Vec<u8>, CryptoError> {
+    /// Attempt to decrypt a `DataLockboxRef` with this key.
+    pub fn decrypt_data(&self, lockbox: &DataLockboxRef) -> Result<Vec<u8>, CryptoError> {
         self.interface.decrypt_data(lockbox)
     }
 
@@ -275,30 +273,30 @@ pub trait StreamInterface: Sync + Send {
         content: &[u8]
     ) -> Vec<u8>;
 
-    /// Decrypt a `LockLockbox` and return a temporary (not stored in Vault) LockKey on success.
+    /// Decrypt a `LockLockboxRef` and return a temporary (not stored in Vault) LockKey on success.
     fn decrypt_lock_key(
         &self,
-        lockbox: &LockLockbox,
+        lockbox: &LockLockboxRef,
     ) -> Result<LockKey, CryptoError>;
 
-    /// Decrypt a `IdentityLockbox` and return a temporary (not stored in Vault) `IdentityKey` on 
+    /// Decrypt a `IdentityLockboxRef` and return a temporary (not stored in Vault) `IdentityKey` on 
     /// success.
     fn decrypt_identity_key(
         &self,
-        lockbox: &IdentityLockbox,
+        lockbox: &IdentityLockboxRef,
     ) -> Result<IdentityKey, CryptoError>;
 
-    /// Decrypt a `StreamLockbox` and return a temporary (not stored in Vault) `StreamKey` on 
+    /// Decrypt a `StreamLockboxRef` and return a temporary (not stored in Vault) `StreamKey` on 
     /// success.
     fn decrypt_stream_key(
         &self,
-        lockbox: &StreamLockbox,
+        lockbox: &StreamLockboxRef,
     ) -> Result<StreamKey, CryptoError>;
 
-    /// Decrypt a `DataLockbox` and return a the decoded raw data on success.
+    /// Decrypt a `DataLockboxRef` and return a the decoded raw data on success.
     fn decrypt_data(
         &self,
-        lockbox: &DataLockbox
+        lockbox: &DataLockboxRef
     ) -> Result<Vec<u8>, CryptoError>;
 
     /// Export the symmetric key in a `StreamLockbox`, with `receive_lock` as the recipient. If the 
@@ -505,11 +503,11 @@ impl StreamInterface for ContainedStreamKey {
 
     fn decrypt_lock_key(
         &self,
-        lockbox: &LockLockbox,
+        lockbox: &LockLockboxRef,
     ) -> Result<LockKey, CryptoError> {
         let recipient = lockbox.recipient();
         let parts = lockbox.as_parts();
-        let mut key = self.decrypt_parts(recipient, parts)?;
+        let mut key = self.decrypt_parts(&recipient, parts)?;
         let result = ContainedLockKey::try_from(key.as_ref());
         key.zeroize();
         Ok(new_lock_key(Arc::new(result?)))
@@ -517,11 +515,11 @@ impl StreamInterface for ContainedStreamKey {
 
     fn decrypt_identity_key(
         &self,
-        lockbox: &IdentityLockbox,
+        lockbox: &IdentityLockboxRef,
     ) -> Result<IdentityKey, CryptoError> {
         let recipient = lockbox.recipient();
         let parts = lockbox.as_parts();
-        let mut key = self.decrypt_parts(recipient, parts)?;
+        let mut key = self.decrypt_parts(&recipient, parts)?;
         let result = ContainedIdKey::try_from(key.as_ref());
         key.zeroize();
         Ok(new_identity_key(Arc::new(result?)))
@@ -529,11 +527,11 @@ impl StreamInterface for ContainedStreamKey {
 
     fn decrypt_stream_key(
         &self,
-        lockbox: &StreamLockbox,
+        lockbox: &StreamLockboxRef,
     ) -> Result<StreamKey, CryptoError> {
         let recipient = lockbox.recipient();
         let parts = lockbox.as_parts();
-        let mut key = self.decrypt_parts(recipient, parts)?;
+        let mut key = self.decrypt_parts(&recipient, parts)?;
         let result = ContainedStreamKey::try_from(key.as_ref());
         key.zeroize();
         Ok(new_stream_key(Arc::new(result?)))
@@ -541,11 +539,11 @@ impl StreamInterface for ContainedStreamKey {
 
     fn decrypt_data(
         &self,
-        lockbox: &DataLockbox
+        lockbox: &DataLockboxRef
     ) -> Result<Vec<u8>, CryptoError> {
         let recipient = lockbox.recipient();
         let parts = lockbox.as_parts();
-        self.decrypt_parts(recipient, parts)
+        self.decrypt_parts(&recipient, parts)
     }
 
     fn self_export_lock(
@@ -559,7 +557,6 @@ impl StreamInterface for ContainedStreamKey {
         raw_secret.zeroize();
         debug_assert!(raw_secret.iter().all(|&x| x == 0)); // You didn't remove the zeroize call, right?
         Some(stream_lockbox_from_parts(
-            LockboxRecipient::LockId(receive_lock.clone()),
             lockbox_vec,
         ))
     }
@@ -575,7 +572,6 @@ impl StreamInterface for ContainedStreamKey {
         raw_secret.zeroize();
         debug_assert!(raw_secret.iter().all(|&x| x == 0)); // You didn't remove the zeroize call, right?
         Some(stream_lockbox_from_parts(
-            LockboxRecipient::StreamId(receive_stream.id().clone()),
             lockbox_vec,
         ))
     }
@@ -604,7 +600,6 @@ impl StreamInterface for ContainedStreamKey {
 /// It can also be used to identify a recipient of a lockbox:
 ///
 /// ```
-/// # use std::convert::TryFrom;
 /// # use fog_crypto::stream::*;
 /// # use fog_crypto::lockbox::*;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -623,7 +618,7 @@ impl StreamInterface for ContainedStreamKey {
 /// // We get the byte vector `encoded`, which might be a lockbox
 /// // ...
 ///
-/// let dec_lockbox = DataLockbox::try_from(encoded.as_ref())?;
+/// let dec_lockbox = DataLockboxRef::from_bytes(encoded.as_ref())?;
 /// let recipient = dec_lockbox.recipient();
 /// if let LockboxRecipient::StreamId(ref id) = dec_lockbox.recipient() {
 ///     // Check to see if this matches the key's StreamId
@@ -1009,22 +1004,22 @@ mod tests {
         // Encrypt
         let lockbox = key.encrypt_data(&mut csprng, message);
         let recipient = LockboxRecipient::StreamId(key.id().clone());
-        assert_eq!(&recipient, lockbox.recipient());
+        assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
         (
             enc,
-            |enc| DataLockbox::try_from(enc).is_ok(),
+            |enc| DataLockboxRef::from_bytes(enc).is_ok(),
             move |enc| {
-                let dec_lockbox = if let Ok(d) = DataLockbox::try_from(enc) {
+                let dec_lockbox = if let Ok(d) = DataLockboxRef::from_bytes(enc) {
                     d
                 }
                 else {
                     return false;
                 };
-                if &LockboxRecipient::StreamId(key.id().clone()) != dec_lockbox.recipient() {
+                if LockboxRecipient::StreamId(key.id().clone()) != dec_lockbox.recipient() {
                     return false;
                 }
-                if let Ok(dec) = key.decrypt_data(&dec_lockbox) {
+                if let Ok(dec) = key.decrypt_data(dec_lockbox) {
                     dec == message
                 }
                 else {
@@ -1104,19 +1099,19 @@ mod tests {
         // Encrypt
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
         let recipient = LockboxRecipient::StreamId(key.id().clone());
-        assert_eq!(&recipient, lockbox.recipient());
+        assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
         (
             enc,
-            |enc| IdentityLockbox::try_from(enc).is_ok(),
+            |enc| IdentityLockboxRef::from_bytes(enc).is_ok(),
             move |enc| {
-                let dec_lockbox = if let Ok(d) = IdentityLockbox::try_from(enc) {
+                let dec_lockbox = if let Ok(d) = IdentityLockboxRef::from_bytes(enc) {
                     d
                 }
                 else {
                     return false;
                 };
-                if &LockboxRecipient::StreamId(key.id().clone()) != dec_lockbox.recipient() {
+                if LockboxRecipient::StreamId(key.id().clone()) != dec_lockbox.recipient() {
                     return false;
                 }
                 if let Ok(dec) = key.decrypt_identity_key(&dec_lockbox) {
@@ -1206,7 +1201,6 @@ mod tests {
             move |content| {
                 let mut csprng = rand::rngs::OsRng;
                 let lockbox = identity_lockbox_from_parts(
-                    LockboxRecipient::StreamId(key.id().clone()),
                     stream_key_encrypt(
                         &key,
                         &mut csprng,
@@ -1215,7 +1209,7 @@ mod tests {
                     )
                 );
                 let enc = Vec::from(lockbox.as_bytes());
-                let lockbox = if let Ok(l) = IdentityLockbox::try_from(&enc[..]) {
+                let lockbox = if let Ok(l) = IdentityLockboxRef::from_bytes(&enc[..]) {
                     l
                 }
                 else {
@@ -1266,19 +1260,19 @@ mod tests {
         // Encrypt
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
         let recipient = LockboxRecipient::StreamId(key.id().clone());
-        assert_eq!(&recipient, lockbox.recipient());
+        assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
         (
             enc,
-            |enc| StreamLockbox::try_from(enc).is_ok(),
+            |enc| StreamLockboxRef::from_bytes(enc).is_ok(),
             move |enc| {
-                let dec_lockbox = if let Ok(d) = StreamLockbox::try_from(enc) {
+                let dec_lockbox = if let Ok(d) = StreamLockboxRef::from_bytes(enc) {
                     d
                 }
                 else {
                     return false;
                 };
-                if &LockboxRecipient::StreamId(key.id().clone()) != dec_lockbox.recipient() {
+                if LockboxRecipient::StreamId(key.id().clone()) != dec_lockbox.recipient() {
                     return false;
                 }
                 if let Ok(dec) = key.decrypt_stream_key(&dec_lockbox) {
@@ -1367,7 +1361,6 @@ mod tests {
             move |content| {
                 let mut csprng = rand::rngs::OsRng;
                 let lockbox = stream_lockbox_from_parts(
-                    LockboxRecipient::StreamId(key.id().clone()),
                     stream_key_encrypt(
                         &key,
                         &mut csprng,
@@ -1376,7 +1369,7 @@ mod tests {
                     )
                 );
                 let enc = Vec::from(lockbox.as_bytes());
-                let lockbox = if let Ok(l) = StreamLockbox::try_from(&enc[..]) {
+                let lockbox = if let Ok(l) = StreamLockboxRef::from_bytes(&enc[..]) {
                     l
                 }
                 else {
@@ -1427,19 +1420,19 @@ mod tests {
         // Encrypt
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
         let recipient = LockboxRecipient::StreamId(key.id().clone());
-        assert_eq!(&recipient, lockbox.recipient());
+        assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
         (
             enc,
-            |enc| LockLockbox::try_from(enc).is_ok(),
+            |enc| LockLockboxRef::from_bytes(enc).is_ok(),
             move |enc| {
-                let dec_lockbox = if let Ok(d) = LockLockbox::try_from(enc) {
+                let dec_lockbox = if let Ok(d) = LockLockboxRef::from_bytes(enc) {
                     d
                 }
                 else {
                     return false;
                 };
-                if &LockboxRecipient::StreamId(key.id().clone()) != dec_lockbox.recipient() {
+                if LockboxRecipient::StreamId(key.id().clone()) != dec_lockbox.recipient() {
                     return false;
                 }
                 if let Ok(dec) = key.decrypt_lock_key(&dec_lockbox) {
@@ -1529,7 +1522,6 @@ mod tests {
             move |content| {
                 let mut csprng = rand::rngs::OsRng;
                 let lockbox = lock_lockbox_from_parts(
-                    LockboxRecipient::StreamId(key.id().clone()),
                     stream_key_encrypt(
                         &key,
                         &mut csprng,
@@ -1538,7 +1530,7 @@ mod tests {
                     )
                 );
                 let enc = Vec::from(lockbox.as_bytes());
-                let lockbox = if let Ok(l) = LockLockbox::try_from(&enc[..]) {
+                let lockbox = if let Ok(l) = LockLockboxRef::from_bytes(&enc[..]) {
                     l
                 }
                 else {
