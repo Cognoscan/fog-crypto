@@ -1,11 +1,11 @@
 //! Public-Key encryption.
 //!
-//! This module lets you create a [`LockKey`] (a private key), which comes with a corresponding 
-//! [`LockId`] (the public key). The `LockId` can be used to encrypt data and export keys, while 
+//! This module lets you create a [`LockKey`] (a private key), which comes with a corresponding
+//! [`LockId`] (the public key). The `LockId` can be used to encrypt data and export keys, while
 //! the `LockKey` can decrypt those keys and data.
 //!
-//! All `LockKey` structs are backed by some struct that implements the [`LockInterface`] trait; 
-//! this can be an in-memory private key, an interface to an OS-managed keystore, an interface to a 
+//! All `LockKey` structs are backed by some struct that implements the [`LockInterface`] trait;
+//! this can be an in-memory private key, an interface to an OS-managed keystore, an interface to a
 //! hardware security module, or something else.
 //!
 //! # Example
@@ -38,47 +38,42 @@
 //!
 //! # Algorithms
 //!
-//! The current (and only) algorithm for public-key encryption is X25519 for calculation of the 
-//! shared secret. The private key is handled by a [`LockKey`], while the public key is available 
+//! The current (and only) algorithm for public-key encryption is X25519 for calculation of the
+//! shared secret. The private key is handled by a [`LockKey`], while the public key is available
 //! as a [`LockId`].
 //!
-//! An ephemeral key pair is generated for each new lockbox, and the shared secret is calculated 
-//! on encryption with the ephemeral private key and the `LockId` through Diffie-Hellman key 
-//! exchange. On decryption, the ephemeral public key is recovered from the lockbox and is 
+//! An ephemeral key pair is generated for each new lockbox, and the shared secret is calculated
+//! on encryption with the ephemeral private key and the `LockId` through Diffie-Hellman key
+//! exchange. On decryption, the ephemeral public key is recovered from the lockbox and is
 //! combined with the recipient's `LockKey`.
 //!
-//! In all cases, the 32-byte shared secret is directly used as the symmetric key in 
+//! In all cases, the 32-byte shared secret is directly used as the symmetric key in
 //! XChaCha20Poly1305.
 //!
 //! # Format
 //!
-//! A [`LockId`] is encoded as a version byte followed by the contained public key, whose length 
+//! A [`LockId`] is encoded as a version byte followed by the contained public key, whose length
 //! may be dependant on the version. For X25519, it is 32 bytes (plus the version byte).
 //!
-//! A [`LockKey`] is encoded as a version byte followed by the contained private key, whose length 
-//! may be dependant on the version. For X25519, it is 32 bytes (plus the version byte).  This 
+//! A [`LockKey`] is encoded as a version byte followed by the contained private key, whose length
+//! may be dependant on the version. For X25519, it is 32 bytes (plus the version byte).  This
 //! encoding is only ever used for the payload of a [`LockLockbox`].
 //!
 //! For details on the lockbox formatting, see the [submodule documentation](crate::lockbox).
 //!
 
 use crate::{
-    identity::{IdentityKey, ContainedIdKey, new_identity_key},
+    identity::{new_identity_key, ContainedIdKey, IdentityKey},
     lockbox::*,
-    stream::{StreamKey, ContainedStreamKey, new_stream_key, stream_key_encrypt},
-    CryptoError,
-    CryptoSrc,
+    stream::{new_stream_key, stream_key_encrypt, ContainedStreamKey, StreamKey},
+    CryptoError, CryptoSrc,
 };
 
 use rand_core::{CryptoRng, RngCore};
 
 use zeroize::Zeroize;
 
-use std::{
-    fmt,
-    sync::Arc,
-    convert::TryFrom
-};
+use std::{convert::TryFrom, fmt, sync::Arc};
 
 /// Default public-key encryption algorithm version.
 pub const DEFAULT_LOCK_VERSION: u8 = 1;
@@ -93,7 +88,7 @@ const V1_LOCK_ID_SIZE: usize = 32; // Size of public key
 const V1_LOCK_KEY_SIZE: usize = 32; // Size of static secret key
 
 pub(crate) fn lock_id_size(_version: u8) -> usize {
-    1+V1_LOCK_ID_SIZE
+    1 + V1_LOCK_ID_SIZE
 }
 
 pub(crate) fn lock_eph_size(_version: u8) -> usize {
@@ -137,7 +132,6 @@ pub struct LockKey {
 }
 
 impl LockKey {
-
     /// Generate a temporary `LockKey` that exists only in program memory.
     pub fn new_temp<R>(csprng: &mut R) -> LockKey
     where
@@ -146,8 +140,8 @@ impl LockKey {
         let interface = Arc::new(ContainedLockKey::generate(csprng));
         new_lock_key(interface)
     }
-    
-    /// Generate a temporary `LockKey` that exists only in program memory. Uses the specified 
+
+    /// Generate a temporary `LockKey` that exists only in program memory. Uses the specified
     /// version instead of the default, and fails if the version is unsupported.
     pub fn new_temp_with_version<R>(csprng: &mut R, version: u8) -> Result<LockKey, CryptoError>
     where
@@ -166,7 +160,7 @@ impl LockKey {
     pub fn id(&self) -> &LockId {
         self.interface.id()
     }
-    
+
     /// Attempt to decrypt a `LockLockboxRef` with this key. On success, the returned `LockKey` is
     /// temporary and not associated with any Vault.
     pub fn decrypt_lock_key(&self, lockbox: &LockLockboxRef) -> Result<LockKey, CryptoError> {
@@ -193,20 +187,20 @@ impl LockKey {
         self.interface.decrypt_data(lockbox)
     }
 
-    /// Export the signing key in an `LockLockbox`, with `receive_lock` as the recipient. If 
+    /// Export the signing key in an `LockLockbox`, with `receive_lock` as the recipient. If
     /// the key cannot be exported, this should return None.
     pub fn export_for_lock<R: CryptoRng + RngCore>(
         &self,
         csprng: &mut R,
-        lock: &LockId
+        lock: &LockId,
     ) -> Option<LockLockbox> {
         self.interface.self_export_lock(csprng, lock)
     }
 
-    /// Export the private key in a `LockLockbox`, with `receive_stream` as the recipient. If 
-    /// the key cannot be exported, this should return None. Additionally, if the underlying 
+    /// Export the private key in a `LockLockbox`, with `receive_stream` as the recipient. If
+    /// the key cannot be exported, this should return None. Additionally, if the underlying
     /// implementation does not allow moving the raw key into memory (i.e. it cannot call
-    /// [`StreamInterface::encrypt`](crate::stream::StreamInterface::encrypt) or 
+    /// [`StreamInterface::encrypt`](crate::stream::StreamInterface::encrypt) or
     /// [`lock_id_encrypt`](lock_id_encrypt)) then None can also be returned.
     pub fn export_for_stream<R: CryptoRng + RngCore>(
         &self,
@@ -233,29 +227,23 @@ impl fmt::Display for LockKey {
     }
 }
 
-/// Create a new `LockKey` to hold a `LockInterface` implementation. Can be used by implementors of 
+/// Create a new `LockKey` to hold a `LockInterface` implementation. Can be used by implementors of
 /// a vault when making new `LockKey` instances.
 pub fn new_lock_key(interface: Arc<dyn LockInterface>) -> LockKey {
-    LockKey {
-        interface,
-    }
+    LockKey { interface }
 }
 
-/// A decryption interface, implemented by anything that can hold a private cryptographic 
+/// A decryption interface, implemented by anything that can hold a private cryptographic
 /// decryption key.
 ///
-/// An implementor must handle all supported Diffie-Hellman algorithms and symmetric-key encryption 
+/// An implementor must handle all supported Diffie-Hellman algorithms and symmetric-key encryption
 /// algorithms.
 pub trait LockInterface {
-
     /// Get the corresponding `LockId` for the private key.
     fn id(&self) -> &LockId;
 
     /// Decrypt an exported `LockKey`.
-    fn decrypt_lock_key(
-        &self,
-        lockbox: &LockLockboxRef,
-    ) -> Result<LockKey, CryptoError>;
+    fn decrypt_lock_key(&self, lockbox: &LockLockboxRef) -> Result<LockKey, CryptoError>;
 
     /// Decrypt an exported `IdentityKey`.
     fn decrypt_identity_key(
@@ -264,26 +252,20 @@ pub trait LockInterface {
     ) -> Result<IdentityKey, CryptoError>;
 
     /// Decrypt an exported `StreamKey`.
-    fn decrypt_stream_key(
-        &self,
-        lockbox: &StreamLockboxRef,
-    ) -> Result<StreamKey, CryptoError>;
+    fn decrypt_stream_key(&self, lockbox: &StreamLockboxRef) -> Result<StreamKey, CryptoError>;
 
     /// Decrypt encrypted data.
-    fn decrypt_data(
-        &self,
-        lockbox: &DataLockboxRef
-    ) -> Result<Vec<u8>, CryptoError>;
+    fn decrypt_data(&self, lockbox: &DataLockboxRef) -> Result<Vec<u8>, CryptoError>;
 
-    /// Export the decryption key in a `LockLockbox`, with `receive_lock` as the recipient. If the 
+    /// Export the decryption key in a `LockLockbox`, with `receive_lock` as the recipient. If the
     /// key cannot be exported, this should return None.
     fn self_export_lock(
         &self,
         csprng: &mut dyn CryptoSrc,
-        receive_lock: &LockId
+        receive_lock: &LockId,
     ) -> Option<LockLockbox>;
 
-    /// Export the decryption key in a `LockLockbox`, with `receive_stream` as the recipient. If the 
+    /// Export the decryption key in a `LockLockbox`, with `receive_stream` as the recipient. If the
     /// key cannot be exported, this should return None.
     fn self_export_stream(
         &self,
@@ -317,23 +299,22 @@ pub trait LockInterface {
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct LockId {
-    inner: x25519_dalek::PublicKey
+    inner: x25519_dalek::PublicKey,
 }
 
 impl LockId {
-
-    /// Encrypt a byte slice into a `DataLockbox`. Requires a cryptographic RNG to generate the 
+    /// Encrypt a byte slice into a `DataLockbox`. Requires a cryptographic RNG to generate the
     /// needed nonce.
-    pub fn encrypt_data<R>(
-        &self,
-        csprng: &mut R,
-        content: &[u8]
-    ) -> DataLockbox
-        where R: CryptoRng + RngCore
+    pub fn encrypt_data<R>(&self, csprng: &mut R, content: &[u8]) -> DataLockbox
+    where
+        R: CryptoRng + RngCore,
     {
-        data_lockbox_from_parts(
-            lock_id_encrypt(&self, csprng, LockboxType::Data(false), content)
-        )
+        data_lockbox_from_parts(lock_id_encrypt(
+            &self,
+            csprng,
+            LockboxType::Data(false),
+            content,
+        ))
     }
 
     /// Get the cryptographic algorithm version used for this ID.
@@ -346,7 +327,7 @@ impl LockId {
         self.inner.as_bytes()
     }
 
-    /// Convert into a byte vector. For extending an existing byte vector, see 
+    /// Convert into a byte vector. For extending an existing byte vector, see
     /// [`encode_vec`](Self::encode_vec).
     pub fn as_vec(&self) -> Vec<u8> {
         let mut v = Vec::new();
@@ -356,7 +337,9 @@ impl LockId {
 
     /// Attempt to parse a base58-encoded `LockId`.
     pub fn from_base58(s: &str) -> Result<Self, CryptoError> {
-        let raw = bs58::decode(s).into_vec().or(Err(CryptoError::BadFormat("Not valid Base58")))?;
+        let raw = bs58::decode(s)
+            .into_vec()
+            .or(Err(CryptoError::BadFormat("Not valid Base58")))?;
         Self::try_from(&raw[..])
     }
 
@@ -365,7 +348,7 @@ impl LockId {
         bs58::encode(&(self.as_vec())).into_string()
     }
 
-    /// Encode onto an existing byte vector. Writes out the version followed by the public signing 
+    /// Encode onto an existing byte vector. Writes out the version followed by the public signing
     /// key. It does not include any length information in the encoding.
     pub fn encode_vec(&self, buf: &mut Vec<u8>) {
         buf.reserve(self.len());
@@ -383,26 +366,29 @@ impl TryFrom<&[u8]> for LockId {
     type Error = CryptoError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let (&version, data) = value.split_first()
-            .ok_or(CryptoError::BadLength{step: "get LockId version", expected: 1, actual: 0})?;
+        let (&version, data) = value.split_first().ok_or(CryptoError::BadLength {
+            step: "get LockId version",
+            expected: 1,
+            actual: 0,
+        })?;
         if version != 1u8 {
             return Err(CryptoError::UnsupportedVersion(version));
         }
         if data.len() != V1_LOCK_ID_SIZE {
-            return Err(CryptoError::BadLength{
+            return Err(CryptoError::BadLength {
                 step: "get LockId public key",
                 expected: V1_LOCK_ID_SIZE,
-                actual: data.len()
+                actual: data.len(),
             });
         }
-        let inner: [u8; V1_LOCK_ID_SIZE] = TryFrom::try_from(data)
-            .or(Err(CryptoError::BadLength {
+        let inner: [u8; V1_LOCK_ID_SIZE] =
+            TryFrom::try_from(data).or(Err(CryptoError::BadLength {
                 step: "get LockId public key",
                 expected: V1_LOCK_ID_SIZE,
-                actual: data.len()
+                actual: data.len(),
             }))?;
         Ok(Self {
-            inner: x25519_dalek::PublicKey::from(inner)
+            inner: x25519_dalek::PublicKey::from(inner),
         })
     }
 }
@@ -441,11 +427,11 @@ impl fmt::UpperHex for LockId {
     }
 }
 
-/// Encrypt data with a `LockId`, returning a raw byte vector. Implementors of 
-/// [`SignInterface`][SignInterface], [`StreamInterface`][StreamInterface], [`LockInterface`] can 
+/// Encrypt data with a `LockId`, returning a raw byte vector. Implementors of
+/// [`SignInterface`][SignInterface], [`StreamInterface`][StreamInterface], [`LockInterface`] can
 /// use this when exporting keys.
 ///
-/// It's not inside the regular `LockId` methods because those are meant for users, which should 
+/// It's not inside the regular `LockId` methods because those are meant for users, which should
 /// not use this function and instead rely on the various `export...` and `encrypt_data` functions.
 ///
 /// [StreamInterface]: crate::stream::StreamInterface
@@ -455,11 +441,13 @@ pub fn lock_id_encrypt(
     csprng: &mut dyn CryptoSrc,
     lock_type: LockboxType,
     content: &[u8],
-) -> Vec<u8>
-{
-    assert!(!lock_type.is_for_stream(), "Tried to encrypt a non-lock-recipient lockbox with a LockId");
-    use chacha20poly1305::{XChaCha20Poly1305, Key, XNonce};
-    use chacha20poly1305::aead::{NewAead, AeadInPlace};
+) -> Vec<u8> {
+    assert!(
+        !lock_type.is_for_stream(),
+        "Tried to encrypt a non-lock-recipient lockbox with a LockId"
+    );
+    use chacha20poly1305::aead::{AeadInPlace, NewAead};
+    use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 
     // Generate the ephemeral key and the nonce
     let mut nonce = [0u8; crate::lockbox::V1_LOCKBOX_NONCE_SIZE];
@@ -487,80 +475,83 @@ pub fn lock_id_encrypt(
     let (additional, nonce_and_content) = lockbox.split_at_mut(header_len);
     let (_, content) = nonce_and_content.split_at_mut(nonce_len);
     let secret = eph.diffie_hellman(&id.inner);
-    let aead = XChaCha20Poly1305::new(
-        Key::from_slice(secret.as_bytes()));
+    let aead = XChaCha20Poly1305::new(Key::from_slice(secret.as_bytes()));
     let nonce = XNonce::from(nonce);
 
-    // We unwrap here because the only failure condition on encryption is if the content is really 
-    // big. Specifically, for XChaCha20Poly1305, 256 GiB big. This library cannot handle that for 
+    // We unwrap here because the only failure condition on encryption is if the content is really
+    // big. Specifically, for XChaCha20Poly1305, 256 GiB big. This library cannot handle that for
     // many other reasons, so it's a-ok if we panic here.
-    let tag = aead.encrypt_in_place_detached(&nonce, additional, content)
+    let tag = aead
+        .encrypt_in_place_detached(&nonce, additional, content)
         .expect("More data than the cipher can accept was put in");
     lockbox.extend_from_slice(&tag);
     lockbox
 }
 
-/// A self-contained implementor of `LockInterface`. It's expected this will be used unless the 
+/// A self-contained implementor of `LockInterface`. It's expected this will be used unless the
 /// decryption key is being managed by the OS or a hardware module.
 pub struct ContainedLockKey {
     id: LockId,
-    key: x25519_dalek::StaticSecret
+    key: x25519_dalek::StaticSecret,
 }
 
 impl ContainedLockKey {
-
     /// Generate a new key given a cryptographic random number generator.
     pub fn generate<R>(csprng: &mut R) -> Self
-        where R: CryptoRng + RngCore
+    where
+        R: CryptoRng + RngCore,
     {
-       Self::with_version(csprng, DEFAULT_LOCK_VERSION).unwrap()
+        Self::with_version(csprng, DEFAULT_LOCK_VERSION).unwrap()
     }
 
-    /// Generate a new key with a specific version, given a cryptographic random number generator. 
+    /// Generate a new key with a specific version, given a cryptographic random number generator.
     /// Fails if the version isn't supported.
     pub fn with_version<R>(csprng: &mut R, version: u8) -> Result<Self, CryptoError>
-        where R: CryptoRng + RngCore
+    where
+        R: CryptoRng + RngCore,
     {
         if (version < MIN_LOCK_VERSION) || (version > MAX_LOCK_VERSION) {
             return Err(CryptoError::UnsupportedVersion(version));
         }
 
         let key = x25519_dalek::StaticSecret::new(csprng);
-        let id = LockId { inner: x25519_dalek::PublicKey::from(&key) };
+        let id = LockId {
+            inner: x25519_dalek::PublicKey::from(&key),
+        };
 
-        Ok(Self {
-            key,
-            id,
-        })
+        Ok(Self { key, id })
     }
 
-    /// Encode directly to a byte vector. The resulting vector should be zeroized or overwritten 
+    /// Encode directly to a byte vector. The resulting vector should be zeroized or overwritten
     /// before being dropped.
     pub fn encode_vec(&self, buf: &mut Vec<u8>) {
-        buf.reserve(1+V1_LOCK_KEY_SIZE);
+        buf.reserve(1 + V1_LOCK_KEY_SIZE);
         buf.push(1u8);
-        // We have to copy the key out and then extend it because x25519_dalek doesn't have a 
+        // We have to copy the key out and then extend it because x25519_dalek doesn't have a
         // "as_bytes"-style function. Make sure to zeroize this after it's been used.
         let mut raw_key = self.key.to_bytes();
         buf.extend_from_slice(&raw_key);
         raw_key.zeroize();
     }
 
-    /// Decrypt a lockbox's individual parts. This is only used by the `LockInterface` 
+    /// Decrypt a lockbox's individual parts. This is only used by the `LockInterface`
     /// implementation.
-    fn decrypt_parts(&self, recipient: &LockboxRecipient, parts: LockboxParts) -> Result<Vec<u8>, CryptoError> {
-        // Verify this is the right key for this lockbox. It costs us little to do this, and saves 
+    fn decrypt_parts(
+        &self,
+        recipient: &LockboxRecipient,
+        parts: LockboxParts,
+    ) -> Result<Vec<u8>, CryptoError> {
+        // Verify this is the right key for this lockbox. It costs us little to do this, and saves
         // us from potential logic errors
         if let LockboxRecipient::LockId(id) = recipient {
             if id != &self.id {
                 return Err(CryptoError::ObjectMismatch(
-                    "StreamKey being used on a lockbox meant for a different LockId"
+                    "StreamKey being used on a lockbox meant for a different LockId",
                 ));
             }
-        }
-        else {
+        } else {
             return Err(CryptoError::ObjectMismatch(
-                "Attempted to use a LockKey to decrypt a lockbox with a StreamId recipient"
+                "Attempted to use a LockKey to decrypt a lockbox with a StreamId recipient",
             ));
         }
 
@@ -570,23 +561,21 @@ impl ContainedLockKey {
             return Err(CryptoError::BadLength {
                 step: "get Lockbox ephemeral public key",
                 expected: V1_LOCK_ID_SIZE,
-                actual: eph_pub.len()
+                actual: eph_pub.len(),
             });
         }
-        let eph_pub: [u8; 32] = TryFrom::try_from(eph_pub).
-            map_err(|_| CryptoError::BadLength {
-                step: "get Lockbox ephemeral public key",
-                expected: V1_LOCK_ID_SIZE,
-                actual: eph_pub.len()
-            })?;
+        let eph_pub: [u8; 32] = TryFrom::try_from(eph_pub).map_err(|_| CryptoError::BadLength {
+            step: "get Lockbox ephemeral public key",
+            expected: V1_LOCK_ID_SIZE,
+            actual: eph_pub.len(),
+        })?;
         let eph_pub = x25519_dalek::PublicKey::from(eph_pub);
         let secret = self.key.diffie_hellman(&eph_pub);
 
         // Feed the lockbox's parts into the decryption algorithm
+        use chacha20poly1305::aead::{Aead, NewAead};
         use chacha20poly1305::*;
-        use chacha20poly1305::aead::{NewAead, Aead};
-        let aead = XChaCha20Poly1305::new(
-            Key::from_slice(secret.as_bytes()));
+        let aead = XChaCha20Poly1305::new(Key::from_slice(secret.as_bytes()));
         let nonce = XNonce::from_slice(parts.nonce);
         let payload = aead::Payload {
             msg: parts.ciphertext,
@@ -595,8 +584,6 @@ impl ContainedLockKey {
         aead.decrypt(nonce, payload)
             .map_err(|_| CryptoError::DecryptFailed)
     }
-
-
 }
 
 impl TryFrom<&[u8]> for ContainedLockKey {
@@ -604,8 +591,11 @@ impl TryFrom<&[u8]> for ContainedLockKey {
 
     /// Try to decode a raw byte sequence into a private
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let (version, raw_key) = value.split_first()
-            .ok_or(CryptoError::BadLength{step: "get LockKey version", expected: 1, actual: 0})?;
+        let (version, raw_key) = value.split_first().ok_or(CryptoError::BadLength {
+            step: "get LockKey version",
+            expected: 1,
+            actual: 0,
+        })?;
         let version = *version;
         if version < MIN_LOCK_VERSION {
             return Err(CryptoError::OldVersion(version));
@@ -615,22 +605,21 @@ impl TryFrom<&[u8]> for ContainedLockKey {
         }
 
         // Copy the private key, wrap in StaticSecret, and clear out the temporary value.
-        // We have to do this because x25519_dalek doesn't support try_from and provides no other 
+        // We have to do this because x25519_dalek doesn't support try_from and provides no other
         // means to copy in from a byte slice.
         if raw_key.len() != V1_LOCK_KEY_SIZE {
             return Err(CryptoError::BadLength {
                 step: "get LockKey key bytes",
                 expected: V1_LOCK_KEY_SIZE,
-                actual: raw_key.len()
+                actual: raw_key.len(),
             });
         }
-        let mut raw_key: [u8; V1_LOCK_KEY_SIZE] = TryFrom::try_from(raw_key)
-            .map_err(|_|
-                CryptoError::BadLength {
-                    step: "get LockKey key bytes",
-                    expected: V1_LOCK_KEY_SIZE,
-                    actual: raw_key.len()
-                })?;
+        let mut raw_key: [u8; V1_LOCK_KEY_SIZE] =
+            TryFrom::try_from(raw_key).map_err(|_| CryptoError::BadLength {
+                step: "get LockKey key bytes",
+                expected: V1_LOCK_KEY_SIZE,
+                actual: raw_key.len(),
+            })?;
         let key = x25519_dalek::StaticSecret::from(raw_key);
         raw_key.zeroize();
 
@@ -644,15 +633,11 @@ impl TryFrom<&[u8]> for ContainedLockKey {
 }
 
 impl LockInterface for ContainedLockKey {
-
     fn id(&self) -> &LockId {
         &self.id
     }
 
-    fn decrypt_lock_key(
-        &self,
-        lockbox: &LockLockboxRef,
-    ) -> Result<LockKey, CryptoError> {
+    fn decrypt_lock_key(&self, lockbox: &LockLockboxRef) -> Result<LockKey, CryptoError> {
         let recipient = lockbox.recipient();
         let parts = lockbox.as_parts();
         let mut key = self.decrypt_parts(&recipient, parts)?;
@@ -673,10 +658,7 @@ impl LockInterface for ContainedLockKey {
         Ok(new_identity_key(Arc::new(result?)))
     }
 
-    fn decrypt_stream_key(
-        &self,
-        lockbox: &StreamLockboxRef,
-    ) -> Result<StreamKey, CryptoError> {
+    fn decrypt_stream_key(&self, lockbox: &StreamLockboxRef) -> Result<StreamKey, CryptoError> {
         let recipient = lockbox.recipient();
         let parts = lockbox.as_parts();
         let mut key = self.decrypt_parts(&recipient, parts)?;
@@ -685,10 +667,7 @@ impl LockInterface for ContainedLockKey {
         Ok(new_stream_key(Arc::new(result?)))
     }
 
-    fn decrypt_data(
-        &self,
-        lockbox: &DataLockboxRef
-    ) -> Result<Vec<u8>, CryptoError> {
+    fn decrypt_data(&self, lockbox: &DataLockboxRef) -> Result<Vec<u8>, CryptoError> {
         let recipient = lockbox.recipient();
         let parts = lockbox.as_parts();
         self.decrypt_parts(&recipient, parts)
@@ -697,16 +676,15 @@ impl LockInterface for ContainedLockKey {
     fn self_export_lock(
         &self,
         csprng: &mut dyn CryptoSrc,
-        receive_lock: &LockId
+        receive_lock: &LockId,
     ) -> Option<LockLockbox> {
         let mut raw_secret = Vec::new(); // Make 100% certain this is zeroized at the end!
         self.encode_vec(&mut raw_secret);
-        let lockbox_vec = lock_id_encrypt(receive_lock, csprng, LockboxType::Lock(false), &raw_secret);
+        let lockbox_vec =
+            lock_id_encrypt(receive_lock, csprng, LockboxType::Lock(false), &raw_secret);
         raw_secret.zeroize();
         debug_assert!(raw_secret.iter().all(|&x| x == 0)); // You didn't remove the zeroize call, right?
-        Some(lock_lockbox_from_parts(
-            lockbox_vec,
-        ))
+        Some(lock_lockbox_from_parts(lockbox_vec))
     }
 
     fn self_export_stream(
@@ -716,12 +694,11 @@ impl LockInterface for ContainedLockKey {
     ) -> Option<LockLockbox> {
         let mut raw_secret = Vec::new(); // Make 100% certain this is zeroized at the end!
         self.encode_vec(&mut raw_secret);
-        let lockbox_vec = stream_key_encrypt(receive_stream, csprng, LockboxType::Lock(true), &raw_secret);
+        let lockbox_vec =
+            stream_key_encrypt(receive_stream, csprng, LockboxType::Lock(true), &raw_secret);
         raw_secret.zeroize();
         debug_assert!(raw_secret.iter().all(|&x| x == 0)); // You didn't remove the zeroize call, right?
-        Some(lock_lockbox_from_parts(
-            lockbox_vec,
-        ))
+        Some(lock_lockbox_from_parts(lockbox_vec))
     }
 }
 
@@ -737,7 +714,8 @@ mod tests {
         let key = LockKey::new_temp_with_version(&mut csprng, DEFAULT_LOCK_VERSION).unwrap();
         assert_eq!(key.version(), DEFAULT_LOCK_VERSION);
         let result = LockKey::new_temp_with_version(&mut csprng, 99u8);
-        if let Err(CryptoError::UnsupportedVersion(99u8)) = result {} else {
+        if let Err(CryptoError::UnsupportedVersion(99u8)) = result {
+        } else {
             panic!("Didn't get expected error on new_temp_with_version");
         }
     }
@@ -783,14 +761,10 @@ mod tests {
         assert_eq!(&id, key.id());
     }
 
-    fn corrupt_version<F1,F2>(
-        mut enc: Vec<u8>,
-        check_decode: F1,
-        check_decrypt: F2,
-    )
+    fn corrupt_version<F1, F2>(mut enc: Vec<u8>, check_decode: F1, check_decrypt: F2)
     where
-        F1 : Fn(&[u8]) -> bool,
-        F2 : Fn(&[u8]) -> bool,
+        F1: Fn(&[u8]) -> bool,
+        F2: Fn(&[u8]) -> bool,
     {
         // Version byte corruption
         let version = enc[0];
@@ -802,14 +776,10 @@ mod tests {
         assert!(check_decrypt(&enc[..]));
     }
 
-    fn corrupt_type<F1,F2>(
-        mut enc: Vec<u8>,
-        check_decode: F1,
-        check_decrypt: F2,
-    )
+    fn corrupt_type<F1, F2>(mut enc: Vec<u8>, check_decode: F1, check_decrypt: F2)
     where
-        F1 : Fn(&[u8]) -> bool,
-        F2 : Fn(&[u8]) -> bool,
+        F1: Fn(&[u8]) -> bool,
+        F2: Fn(&[u8]) -> bool,
     {
         // Type byte corruption
         enc[1] |= 0x80;
@@ -828,14 +798,10 @@ mod tests {
         assert!(check_decrypt(&enc[..]));
     }
 
-    fn corrupt_id<F1,F2>(
-        mut enc: Vec<u8>,
-        check_decode: F1,
-        check_decrypt: F2,
-    )
+    fn corrupt_id<F1, F2>(mut enc: Vec<u8>, check_decode: F1, check_decrypt: F2)
     where
-        F1 : Fn(&[u8]) -> bool,
-        F2 : Fn(&[u8]) -> bool,
+        F1: Fn(&[u8]) -> bool,
+        F2: Fn(&[u8]) -> bool,
     {
         // Identity corruption - 2 is ID version, 3 is first byte of ID
         enc[2] = 0;
@@ -850,14 +816,10 @@ mod tests {
         assert!(check_decrypt(&enc[..]));
     }
 
-    fn corrupt_ephemeral<F1,F2>(
-        mut enc: Vec<u8>,
-        check_decode: F1,
-        check_decrypt: F2,
-    )
+    fn corrupt_ephemeral<F1, F2>(mut enc: Vec<u8>, check_decode: F1, check_decrypt: F2)
     where
-        F1 : Fn(&[u8]) -> bool,
-        F2 : Fn(&[u8]) -> bool,
+        F1: Fn(&[u8]) -> bool,
+        F2: Fn(&[u8]) -> bool,
     {
         // Ephemeral Key corruption - 35 is first byte of ephemeral public key
         enc[35] ^= 0xFF;
@@ -867,15 +829,10 @@ mod tests {
         assert!(check_decrypt(&enc[..]));
     }
 
-
-    fn corrupt_nonce<F1,F2>(
-        mut enc: Vec<u8>,
-        check_decode: F1,
-        check_decrypt: F2,
-    )
+    fn corrupt_nonce<F1, F2>(mut enc: Vec<u8>, check_decode: F1, check_decrypt: F2)
     where
-        F1 : Fn(&[u8]) -> bool,
-        F2 : Fn(&[u8]) -> bool,
+        F1: Fn(&[u8]) -> bool,
+        F2: Fn(&[u8]) -> bool,
     {
         // Nonce corruption - 67 is first byte of the nonce
         enc[67] ^= 0xFF;
@@ -885,14 +842,10 @@ mod tests {
         assert!(check_decrypt(&enc[..]));
     }
 
-    fn corrupt_ciphertext<F1,F2>(
-        mut enc: Vec<u8>,
-        check_decode: F1,
-        check_decrypt: F2,
-    )
+    fn corrupt_ciphertext<F1, F2>(mut enc: Vec<u8>, check_decode: F1, check_decrypt: F2)
     where
-        F1 : Fn(&[u8]) -> bool,
-        F2 : Fn(&[u8]) -> bool,
+        F1: Fn(&[u8]) -> bool,
+        F2: Fn(&[u8]) -> bool,
     {
         // Ciphertext corruption - 91 is first byte of ciphertext
         enc[91] ^= 0xFF;
@@ -902,14 +855,10 @@ mod tests {
         assert!(check_decrypt(&enc[..]));
     }
 
-    fn corrupt_tag<F1,F2>(
-        mut enc: Vec<u8>,
-        check_decode: F1,
-        check_decrypt: F2,
-    )
+    fn corrupt_tag<F1, F2>(mut enc: Vec<u8>, check_decode: F1, check_decrypt: F2)
     where
-        F1 : Fn(&[u8]) -> bool,
-        F2 : Fn(&[u8]) -> bool,
+        F1: Fn(&[u8]) -> bool,
+        F2: Fn(&[u8]) -> bool,
     {
         // Tag corruption - corrupt the last byte
         let tag_end = enc.last_mut().unwrap();
@@ -921,14 +870,10 @@ mod tests {
         assert!(check_decrypt(&enc[..]));
     }
 
-    fn corrupt_length_extend<F1,F2>(
-        mut enc: Vec<u8>,
-        check_decode: F1,
-        check_decrypt: F2,
-    )
+    fn corrupt_length_extend<F1, F2>(mut enc: Vec<u8>, check_decode: F1, check_decrypt: F2)
     where
-        F1 : Fn(&[u8]) -> bool,
-        F2 : Fn(&[u8]) -> bool,
+        F1: Fn(&[u8]) -> bool,
+        F2: Fn(&[u8]) -> bool,
     {
         // Length extension
         enc.push(0);
@@ -938,14 +883,10 @@ mod tests {
         assert!(check_decrypt(&enc[..]));
     }
 
-    fn corrupt_truncation<F1,F2>(
-        mut enc: Vec<u8>,
-        check_decode: F1,
-        check_decrypt: F2,
-    )
+    fn corrupt_truncation<F1, F2>(mut enc: Vec<u8>, check_decode: F1, check_decrypt: F2)
     where
-        F1 : Fn(&[u8]) -> bool,
-        F2 : Fn(&[u8]) -> bool,
+        F1: Fn(&[u8]) -> bool,
+        F2: Fn(&[u8]) -> bool,
     {
         // Early truncation
         enc.pop();
@@ -953,14 +894,10 @@ mod tests {
         assert!(!check_decrypt(&enc[..]));
     }
 
-    fn corrupt_each_byte<F1,F2>(
-        mut enc: Vec<u8>,
-        _check_decode: F1,
-        check_decrypt: F2,
-    )
+    fn corrupt_each_byte<F1, F2>(mut enc: Vec<u8>, _check_decode: F1, check_decrypt: F2)
     where
-        F1 : Fn(&[u8]) -> bool,
-        F2 : Fn(&[u8]) -> bool,
+        F1: Fn(&[u8]) -> bool,
+        F2: Fn(&[u8]) -> bool,
     {
         for i in 0..enc.len() {
             enc[i] ^= 0xFF;
@@ -969,11 +906,7 @@ mod tests {
         }
     }
 
-    fn corrupt_inner_version<F: Fn(&[u8]) -> bool>(
-        mut content: Vec<u8>,
-        check_sequence: F
-    )
-    {
+    fn corrupt_inner_version<F: Fn(&[u8]) -> bool>(mut content: Vec<u8>, check_sequence: F) {
         // Corrupt the version byte
         content[0] = 0u8;
         assert!(!check_sequence(&content[..]));
@@ -982,26 +915,17 @@ mod tests {
         assert!(!check_sequence(&content[..]));
     }
 
-    fn corrupt_inner_length_extend<F: Fn(&[u8]) -> bool>(
-        mut content: Vec<u8>,
-        check_sequence: F
-    )
-    {
+    fn corrupt_inner_length_extend<F: Fn(&[u8]) -> bool>(mut content: Vec<u8>, check_sequence: F) {
         content.push(0u8);
         assert!(!check_sequence(&content[..]));
     }
 
-    fn corrupt_inner_truncate<F: Fn(&[u8]) -> bool>(
-        mut content: Vec<u8>,
-        check_sequence: F
-    )
-    {
+    fn corrupt_inner_truncate<F: Fn(&[u8]) -> bool>(mut content: Vec<u8>, check_sequence: F) {
         content.pop();
         assert!(!check_sequence(&content[..]));
     }
 
-    fn setup_data() -> (Vec<u8>, impl Fn(&[u8])->bool, impl Fn(&[u8])->bool)
-    {
+    fn setup_data() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
         let mut csprng = rand::rngs::OsRng;
         let key = LockKey::new_temp(&mut csprng);
@@ -1018,8 +942,7 @@ mod tests {
             move |enc| {
                 let dec_lockbox = if let Ok(d) = DataLockboxRef::from_bytes(enc) {
                     d
-                }
-                else {
+                } else {
                     return false;
                 };
                 if LockboxRecipient::LockId(key.id().clone()) != dec_lockbox.recipient() {
@@ -1027,11 +950,10 @@ mod tests {
                 }
                 if let Ok(dec) = key.decrypt_data(&dec_lockbox) {
                     dec == message
-                }
-                else {
+                } else {
                     false
                 }
-            }
+            },
         )
     }
 
@@ -1101,9 +1023,7 @@ mod tests {
         corrupt_each_byte(enc, check_decode, check_decrypt);
     }
 
-
-    fn setup_id() -> (Vec<u8>, impl Fn(&[u8])->bool, impl Fn(&[u8])->bool)
-    {
+    fn setup_id() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
         let mut csprng = rand::rngs::OsRng;
         let key = LockKey::new_temp(&mut csprng);
@@ -1120,8 +1040,7 @@ mod tests {
             move |enc| {
                 let dec_lockbox = if let Ok(d) = IdentityLockboxRef::from_bytes(enc) {
                     d
-                }
-                else {
+                } else {
                     return false;
                 };
                 if LockboxRecipient::LockId(key.id().clone()) != dec_lockbox.recipient() {
@@ -1129,11 +1048,10 @@ mod tests {
                 }
                 if let Ok(dec) = key.decrypt_identity_key(&dec_lockbox) {
                     dec.id() == to_send.id()
-                }
-                else {
+                } else {
                     false
                 }
-            }
+            },
         )
     }
 
@@ -1203,8 +1121,7 @@ mod tests {
         corrupt_each_byte(enc, check_decode, check_decrypt);
     }
 
-    fn setup_id_raw() -> (Vec<u8>, impl Fn(&[u8])->bool)
-    {
+    fn setup_id_raw() -> (Vec<u8>, impl Fn(&[u8]) -> bool) {
         use crate::identity::SignInterface;
         // Setup
         let mut csprng = rand::rngs::OsRng;
@@ -1215,33 +1132,26 @@ mod tests {
         let mut content = Vec::new();
         to_send.encode_vec(&mut content);
 
-        (
-            content,
-            move |content| {
-                let mut csprng = rand::rngs::OsRng;
-                let lockbox = identity_lockbox_from_parts(
-                    crate::lock::lock_id_encrypt(
-                        key.id(),
-                        &mut csprng,
-                        crate::lockbox::LockboxType::Identity(false),
-                        &content[..]
-                    )
-                );
-                let enc = Vec::from(lockbox.as_bytes());
-                let lockbox = if let Ok(l) = IdentityLockboxRef::from_bytes(&enc[..]) {
-                    l
-                }
-                else {
-                    return false;
-                };
-                if let Ok(dec) = key.decrypt_identity_key(&lockbox) {
-                    dec.id() == to_send.id()
-                }
-                else {
-                    false
-                }
+        (content, move |content| {
+            let mut csprng = rand::rngs::OsRng;
+            let lockbox = identity_lockbox_from_parts(crate::lock::lock_id_encrypt(
+                key.id(),
+                &mut csprng,
+                crate::lockbox::LockboxType::Identity(false),
+                &content[..],
+            ));
+            let enc = Vec::from(lockbox.as_bytes());
+            let lockbox = if let Ok(l) = IdentityLockboxRef::from_bytes(&enc[..]) {
+                l
+            } else {
+                return false;
+            };
+            if let Ok(dec) = key.decrypt_identity_key(&lockbox) {
+                dec.id() == to_send.id()
+            } else {
+                false
             }
-        )
+        })
     }
 
     #[test]
@@ -1268,9 +1178,7 @@ mod tests {
         corrupt_inner_truncate(content, check_sequence);
     }
 
-
-    fn setup_lock_stream() -> (Vec<u8>, impl Fn(&[u8])->bool, impl Fn(&[u8])->bool)
-    {
+    fn setup_lock_stream() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
         let mut csprng = rand::rngs::OsRng;
         let key = LockKey::new_temp(&mut csprng);
@@ -1287,8 +1195,7 @@ mod tests {
             move |enc| {
                 let dec_lockbox = if let Ok(d) = StreamLockboxRef::from_bytes(enc) {
                     d
-                }
-                else {
+                } else {
                     return false;
                 };
                 if LockboxRecipient::LockId(key.id().clone()) != dec_lockbox.recipient() {
@@ -1296,11 +1203,10 @@ mod tests {
                 }
                 if let Ok(dec) = key.decrypt_stream_key(&dec_lockbox) {
                     dec.id() == to_send.id()
-                }
-                else {
+                } else {
                     false
                 }
-            }
+            },
         )
     }
 
@@ -1370,8 +1276,7 @@ mod tests {
         corrupt_each_byte(enc, check_decode, check_decrypt);
     }
 
-    fn setup_lock_stream_raw() -> (Vec<u8>, impl Fn(&[u8])->bool)
-    {
+    fn setup_lock_stream_raw() -> (Vec<u8>, impl Fn(&[u8]) -> bool) {
         use crate::stream::StreamInterface;
         // Setup
         let mut csprng = rand::rngs::OsRng;
@@ -1382,33 +1287,26 @@ mod tests {
         let mut content = Vec::new();
         to_send.encode_vec(&mut content);
 
-        (
-            content,
-            move |content| {
-                let mut csprng = rand::rngs::OsRng;
-                let lockbox = stream_lockbox_from_parts(
-                    crate::lock::lock_id_encrypt(
-                        key.id(),
-                        &mut csprng,
-                        crate::lockbox::LockboxType::Stream(false),
-                        &content[..]
-                    )
-                );
-                let enc = Vec::from(lockbox.as_bytes());
-                let lockbox = if let Ok(l) = StreamLockboxRef::from_bytes(&enc[..]) {
-                    l
-                }
-                else {
-                    return false;
-                };
-                if let Ok(dec) = key.decrypt_stream_key(&lockbox) {
-                    dec.id() == to_send.id()
-                }
-                else {
-                    false
-                }
+        (content, move |content| {
+            let mut csprng = rand::rngs::OsRng;
+            let lockbox = stream_lockbox_from_parts(crate::lock::lock_id_encrypt(
+                key.id(),
+                &mut csprng,
+                crate::lockbox::LockboxType::Stream(false),
+                &content[..],
+            ));
+            let enc = Vec::from(lockbox.as_bytes());
+            let lockbox = if let Ok(l) = StreamLockboxRef::from_bytes(&enc[..]) {
+                l
+            } else {
+                return false;
+            };
+            if let Ok(dec) = key.decrypt_stream_key(&lockbox) {
+                dec.id() == to_send.id()
+            } else {
+                false
             }
-        )
+        })
     }
 
     #[test]
@@ -1435,9 +1333,7 @@ mod tests {
         corrupt_inner_truncate(content, check_sequence);
     }
 
-
-    fn setup_lock() -> (Vec<u8>, impl Fn(&[u8])->bool, impl Fn(&[u8])->bool)
-    {
+    fn setup_lock() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
         let mut csprng = rand::rngs::OsRng;
         let key = LockKey::new_temp(&mut csprng);
@@ -1454,8 +1350,7 @@ mod tests {
             move |enc| {
                 let dec_lockbox = if let Ok(d) = LockLockboxRef::from_bytes(enc) {
                     d
-                }
-                else {
+                } else {
                     return false;
                 };
                 if LockboxRecipient::LockId(key.id().clone()) != dec_lockbox.recipient() {
@@ -1463,11 +1358,10 @@ mod tests {
                 }
                 if let Ok(dec) = key.decrypt_lock_key(&dec_lockbox) {
                     dec.id() == to_send.id()
-                }
-                else {
+                } else {
                     false
                 }
-            }
+            },
         )
     }
 
@@ -1537,8 +1431,7 @@ mod tests {
         corrupt_each_byte(enc, check_decode, check_decrypt);
     }
 
-    fn setup_lock_raw() -> (Vec<u8>, impl Fn(&[u8])->bool)
-    {
+    fn setup_lock_raw() -> (Vec<u8>, impl Fn(&[u8]) -> bool) {
         // Setup
         let mut csprng = rand::rngs::OsRng;
         let key = LockKey::new_temp(&mut csprng);
@@ -1548,33 +1441,26 @@ mod tests {
         let mut content = Vec::new();
         to_send.encode_vec(&mut content);
 
-        (
-            content,
-            move |content| {
-                let mut csprng = rand::rngs::OsRng;
-                let lockbox = lock_lockbox_from_parts(
-                    crate::lock::lock_id_encrypt(
-                        key.id(),
-                        &mut csprng,
-                        crate::lockbox::LockboxType::Lock(false),
-                        &content[..]
-                    )
-                );
-                let enc = Vec::from(lockbox.as_bytes());
-                let lockbox = if let Ok(l) = LockLockboxRef::from_bytes(&enc[..]) {
-                    l
-                }
-                else {
-                    return false;
-                };
-                if let Ok(dec) = key.decrypt_lock_key(&lockbox) {
-                    dec.id() == to_send.id()
-                }
-                else {
-                    false
-                }
+        (content, move |content| {
+            let mut csprng = rand::rngs::OsRng;
+            let lockbox = lock_lockbox_from_parts(crate::lock::lock_id_encrypt(
+                key.id(),
+                &mut csprng,
+                crate::lockbox::LockboxType::Lock(false),
+                &content[..],
+            ));
+            let enc = Vec::from(lockbox.as_bytes());
+            let lockbox = if let Ok(l) = LockLockboxRef::from_bytes(&enc[..]) {
+                l
+            } else {
+                return false;
+            };
+            if let Ok(dec) = key.decrypt_lock_key(&lockbox) {
+                dec.id() == to_send.id()
+            } else {
+                false
             }
-        )
+        })
     }
 
     #[test]
