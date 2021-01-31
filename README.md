@@ -1,5 +1,14 @@
 # fog-crypto
 
+[![Build](https://github.com/Cognoscan/fog-crypto/workflows/Rust/badge.svg)](
+https://github.com/Cognoscan/fog-crypto/actions)
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](
+https://github.com/Cognoscan/fog-crypto)
+[![Cargo](https://img.shields.io/crates/v/fog-crypto.svg)](
+https://crates.io/crates/fog-crypto)
+[![Documentation](https://docs.rs/fog-crypto/badge.svg)](
+https://docs.rs/fog-crypto)
+
 fog-crypto defines a simplified cryptographic interface for working with 
 private-key and symmetric-key cryptography. This can be used to more easily 
 sign & encrypt blocks of data and manage keys.
