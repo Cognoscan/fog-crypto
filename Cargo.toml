@@ -1,6 +1,6 @@
 [package]
 name = "fog-crypto"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Scott Teal"]
 readme = "README.md"
 keywords = [ "crypto", "fog-tools"]
