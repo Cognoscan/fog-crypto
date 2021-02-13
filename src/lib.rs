@@ -111,7 +111,7 @@
 //!
 //! [StrictVerification]: https://docs.rs/ed25519-dalek/1.0.1/ed25519_dalek/struct.PublicKey.html#method.verify_strict
 
-#[cfg(feature="with-serde")]
+#[cfg(feature = "with-serde")]
 pub mod serde;
 
 mod error;

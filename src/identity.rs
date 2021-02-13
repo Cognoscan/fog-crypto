@@ -406,9 +406,7 @@ impl ContainedIdKey {
         }
 
         let inner = ed25519_dalek::Keypair::generate(csprng);
-        let id = Identity {
-            id: inner.public,
-        };
+        let id = Identity { id: inner.public };
 
         Ok(Self { id, inner })
     }

@@ -1,54 +1,54 @@
 //! [`serde`](https://serde.rs/) support.
 //!
-//! This module is optionally compiled if the `with-serde` feature is enabled (which is the 
-//! default). Each type is serialized as though it were part of an enum, with each specific type 
-//! being an enum variant. The enum indexing and naming matches up with `fog-pack`'s encoding 
-//! scheme for these types. Supported types for serialization & deserialization are `Hash`, 
+//! This module is optionally compiled if the `with-serde` feature is enabled (which is the
+//! default). Each type is serialized as though it were part of an enum, with each specific type
+//! being an enum variant. The enum indexing and naming matches up with `fog-pack`'s encoding
+//! scheme for these types. Supported types for serialization & deserialization are `Hash`,
 //! `Identity`, `LockId`, `StreamId`, and all the lockbox types.
 //!
-//! The types will all serialize as bytes if the serializer is not marked as human-readable. If 
-//! human-readable, the `Hash`, `Identity`, `StreamId`, and `LockId` types will serialize as base58 
-//! strings (much like other public keys in a post-blockchain world), while the lockbox types will 
+//! The types will all serialize as bytes if the serializer is not marked as human-readable. If
+//! human-readable, the `Hash`, `Identity`, `StreamId`, and `LockId` types will serialize as base58
+//! strings (much like other public keys in a post-blockchain world), while the lockbox types will
 //! serialize as base64 strings.
 //!
-//! Finally, since human-readable formats require base64 encode/decode for lockboxes, the `Ref` 
+//! Finally, since human-readable formats require base64 encode/decode for lockboxes, the `Ref`
 //! variants used for zero-copy decoding are not supported in those instances.
 
 /// Name marker used for the library's fictional Enum type
-pub const FOG_TYPE_ENUM                       : &str = "_FogType";
+pub const FOG_TYPE_ENUM: &str = "_FogType";
 /// Enum variant name for [`Hash`](crate::hash::Hash)
-pub const FOG_TYPE_ENUM_HASH_NAME             : &str = "Hash";
+pub const FOG_TYPE_ENUM_HASH_NAME: &str = "Hash";
 /// Enum variant name for [`Identity`](crate::identity::Identity)
-pub const FOG_TYPE_ENUM_IDENTITY_NAME         : &str = "Identity";
+pub const FOG_TYPE_ENUM_IDENTITY_NAME: &str = "Identity";
 /// Enum variant name for [`LockId`](crate::lock::LockId)
-pub const FOG_TYPE_ENUM_LOCK_ID_NAME          : &str = "LockId";
+pub const FOG_TYPE_ENUM_LOCK_ID_NAME: &str = "LockId";
 /// Enum variant name for [`StreamId`](crate::stream::StreamId)
-pub const FOG_TYPE_ENUM_STREAM_ID_NAME        : &str = "StreamId";
+pub const FOG_TYPE_ENUM_STREAM_ID_NAME: &str = "StreamId";
 /// Enum variant name for [`DataLockbox`](crate::lockbox::DataLockbox)
-pub const FOG_TYPE_ENUM_DATA_LOCKBOX_NAME     : &str = "DataLockbox";
+pub const FOG_TYPE_ENUM_DATA_LOCKBOX_NAME: &str = "DataLockbox";
 /// Enum variant name for [`IdentityLockbox`](crate::lockbox::IdentityLockbox)
-pub const FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME : &str = "IdentityLockbox";
+pub const FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME: &str = "IdentityLockbox";
 /// Enum variant name for [`StreamLockbox`](crate::lockbox::StreamLockbox)
-pub const FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME   : &str = "StreamLockbox";
+pub const FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME: &str = "StreamLockbox";
 /// Enum variant name for [`LockLockbox`](crate::lockbox::LockLockbox)
-pub const FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME     : &str = "LockLockbox";
+pub const FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME: &str = "LockLockbox";
 
 /// Enum variant index for [`Hash`](crate::hash::Hash)
-pub const FOG_TYPE_ENUM_HASH_INDEX             : u64 = 1;
+pub const FOG_TYPE_ENUM_HASH_INDEX: u64 = 1;
 /// Enum variant index for [`Identity`](crate::identity::Identity)
-pub const FOG_TYPE_ENUM_IDENTITY_INDEX         : u64 = 2;
+pub const FOG_TYPE_ENUM_IDENTITY_INDEX: u64 = 2;
 /// Enum variant index for [`LockId`](crate::lock::LockId)
-pub const FOG_TYPE_ENUM_LOCK_ID_INDEX          : u64 = 3;
+pub const FOG_TYPE_ENUM_LOCK_ID_INDEX: u64 = 3;
 /// Enum variant index for [`StreamId`](crate::stream::StreamId)
-pub const FOG_TYPE_ENUM_STREAM_ID_INDEX        : u64 = 4;
+pub const FOG_TYPE_ENUM_STREAM_ID_INDEX: u64 = 4;
 /// Enum variant index for [`DataLockbox`](crate::lockbox::DataLockbox)
-pub const FOG_TYPE_ENUM_DATA_LOCKBOX_INDEX     : u64 = 5;
+pub const FOG_TYPE_ENUM_DATA_LOCKBOX_INDEX: u64 = 5;
 /// Enum variant index for [`IdentityLockbox`](crate::lockbox::IdentityLockbox)
-pub const FOG_TYPE_ENUM_IDENTITY_LOCKBOX_INDEX : u64 = 6;
+pub const FOG_TYPE_ENUM_IDENTITY_LOCKBOX_INDEX: u64 = 6;
 /// Enum variant index for [`StreamLockbox`](crate::lockbox::StreamLockbox)
-pub const FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX   : u64 = 7;
+pub const FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX: u64 = 7;
 /// Enum variant index for [`LockLockbox`](crate::lockbox::LockLockbox)
-pub const FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX     : u64 = 8;
+pub const FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX: u64 = 8;
 
 const VARIANTS: &[&str] = &[
     FOG_TYPE_ENUM,
@@ -62,27 +62,19 @@ const VARIANTS: &[&str] = &[
     FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME,
 ];
 
-use crate::{
-    hash::Hash,
-    identity::Identity,
-    stream::StreamId,
-    lock::LockId,
-    lockbox::*,
-};
+use crate::{hash::Hash, identity::Identity, lock::LockId, lockbox::*, stream::StreamId};
 
 use serde::{
-    ser::{Serializer, Serialize},
-    de::{Unexpected, Visitor, Deserialize, Deserializer, EnumAccess, VariantAccess, Error}
+    de::{Deserialize, Deserializer, EnumAccess, Error, Unexpected, VariantAccess, Visitor},
+    ser::{Serialize, Serializer},
 };
-use serde_bytes::{Bytes, ByteBuf};
-use std::{
-    fmt,
-    convert::TryFrom,
-};
+use serde_bytes::{ByteBuf, Bytes};
+use std::{convert::TryFrom, fmt};
 
 impl Serialize for Hash {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         if serializer.is_human_readable() {
             let value = self.to_base58();
@@ -90,16 +82,15 @@ impl Serialize for Hash {
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_HASH_INDEX as u32,
                 FOG_TYPE_ENUM_HASH_NAME,
-                &value
+                &value,
             )
-        }
-        else {
+        } else {
             let value = Bytes::new(self.as_ref());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_HASH_INDEX as u32,
                 FOG_TYPE_ENUM_HASH_NAME,
-                value
+                value,
             )
         }
     }
@@ -107,7 +98,8 @@ impl Serialize for Hash {
 
 impl Serialize for Identity {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         if serializer.is_human_readable() {
             let value = self.to_base58();
@@ -115,16 +107,15 @@ impl Serialize for Identity {
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_IDENTITY_INDEX as u32,
                 FOG_TYPE_ENUM_IDENTITY_NAME,
-                &value
+                &value,
             )
-        }
-        else {
+        } else {
             let value = ByteBuf::from(self.as_vec());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_IDENTITY_INDEX as u32,
                 FOG_TYPE_ENUM_IDENTITY_NAME,
-                &value
+                &value,
             )
         }
     }
@@ -132,7 +123,8 @@ impl Serialize for Identity {
 
 impl Serialize for StreamId {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         if serializer.is_human_readable() {
             let value = self.to_base58();
@@ -140,16 +132,15 @@ impl Serialize for StreamId {
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_STREAM_ID_INDEX as u32,
                 FOG_TYPE_ENUM_STREAM_ID_NAME,
-                &value
+                &value,
             )
-        }
-        else {
+        } else {
             let value = ByteBuf::from(self.as_vec());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_STREAM_ID_INDEX as u32,
                 FOG_TYPE_ENUM_STREAM_ID_NAME,
-                &value
+                &value,
             )
         }
     }
@@ -157,7 +148,8 @@ impl Serialize for StreamId {
 
 impl Serialize for LockId {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         if serializer.is_human_readable() {
             let value = self.to_base58();
@@ -165,16 +157,15 @@ impl Serialize for LockId {
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_LOCK_ID_INDEX as u32,
                 FOG_TYPE_ENUM_LOCK_ID_NAME,
-                &value
+                &value,
             )
-        }
-        else {
+        } else {
             let value = ByteBuf::from(self.as_vec());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_LOCK_ID_INDEX as u32,
                 FOG_TYPE_ENUM_LOCK_ID_NAME,
-                &value
+                &value,
             )
         }
     }
@@ -182,7 +173,8 @@ impl Serialize for LockId {
 
 impl Serialize for DataLockbox {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         if serializer.is_human_readable() {
             let value = base64::encode(self.as_bytes());
@@ -190,16 +182,15 @@ impl Serialize for DataLockbox {
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_DATA_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_DATA_LOCKBOX_NAME,
-                &value
+                &value,
             )
-        }
-        else {
+        } else {
             let value = Bytes::new(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_DATA_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_DATA_LOCKBOX_NAME,
-                &value
+                &value,
             )
         }
     }
@@ -207,7 +198,8 @@ impl Serialize for DataLockbox {
 
 impl Serialize for DataLockboxRef {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         if serializer.is_human_readable() {
             let value = base64::encode(self.as_bytes());
@@ -215,16 +207,15 @@ impl Serialize for DataLockboxRef {
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_DATA_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_DATA_LOCKBOX_NAME,
-                &value
+                &value,
             )
-        }
-        else {
+        } else {
             let value = Bytes::new(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_DATA_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_DATA_LOCKBOX_NAME,
-                &value
+                &value,
             )
         }
     }
@@ -232,7 +223,8 @@ impl Serialize for DataLockboxRef {
 
 impl Serialize for IdentityLockbox {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         if serializer.is_human_readable() {
             let value = base64::encode(self.as_bytes());
@@ -240,16 +232,15 @@ impl Serialize for IdentityLockbox {
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_IDENTITY_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME,
-                &value
+                &value,
             )
-        }
-        else {
+        } else {
             let value = Bytes::new(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_IDENTITY_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME,
-                &value
+                &value,
             )
         }
     }
@@ -257,7 +248,8 @@ impl Serialize for IdentityLockbox {
 
 impl Serialize for IdentityLockboxRef {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         if serializer.is_human_readable() {
             let value = base64::encode(self.as_bytes());
@@ -265,16 +257,15 @@ impl Serialize for IdentityLockboxRef {
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_IDENTITY_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME,
-                &value
+                &value,
             )
-        }
-        else {
+        } else {
             let value = Bytes::new(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_IDENTITY_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME,
-                &value
+                &value,
             )
         }
     }
@@ -282,7 +273,8 @@ impl Serialize for IdentityLockboxRef {
 
 impl Serialize for StreamLockbox {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         if serializer.is_human_readable() {
             let value = base64::encode(self.as_bytes());
@@ -290,16 +282,15 @@ impl Serialize for StreamLockbox {
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME,
-                &value
+                &value,
             )
-        }
-        else {
+        } else {
             let value = Bytes::new(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME,
-                &value
+                &value,
             )
         }
     }
@@ -307,7 +298,8 @@ impl Serialize for StreamLockbox {
 
 impl Serialize for StreamLockboxRef {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         if serializer.is_human_readable() {
             let value = base64::encode(self.as_bytes());
@@ -315,16 +307,15 @@ impl Serialize for StreamLockboxRef {
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME,
-                &value
+                &value,
             )
-        }
-        else {
+        } else {
             let value = Bytes::new(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME,
-                &value
+                &value,
             )
         }
     }
@@ -332,7 +323,8 @@ impl Serialize for StreamLockboxRef {
 
 impl Serialize for LockLockbox {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         if serializer.is_human_readable() {
             let value = base64::encode(self.as_bytes());
@@ -340,16 +332,15 @@ impl Serialize for LockLockbox {
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME,
-                &value
+                &value,
             )
-        }
-        else {
+        } else {
             let value = Bytes::new(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME,
-                &value
+                &value,
             )
         }
     }
@@ -357,7 +348,8 @@ impl Serialize for LockLockbox {
 
 impl Serialize for LockLockboxRef {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         if serializer.is_human_readable() {
             let value = base64::encode(self.as_bytes());
@@ -365,21 +357,19 @@ impl Serialize for LockLockboxRef {
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME,
-                &value
+                &value,
             )
-        }
-        else {
+        } else {
             let value = Bytes::new(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX as u32,
                 FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME,
-                &value
+                &value,
             )
         }
     }
 }
-
 
 ///////////////////////////////////////////////////////////////////////////////
 // Deserialization
@@ -400,14 +390,14 @@ impl CryptoEnum {
     fn as_str(&self) -> &'static str {
         use CryptoEnum::*;
         match *self {
-            Hash            => "Hash",
-            Identity        => "Identity",
-            LockId          => "LockId",
-            StreamId        => "StreamId",
-            DataLockbox     => "DataLockbox",
+            Hash => "Hash",
+            Identity => "Identity",
+            LockId => "LockId",
+            StreamId => "StreamId",
+            DataLockbox => "DataLockbox",
             IdentityLockbox => "IdentityLockbox",
-            StreamLockbox   => "StreamLockbox",
-            LockLockbox     => "LockLockbox",
+            StreamLockbox => "StreamLockbox",
+            LockLockbox => "LockLockbox",
         }
     }
 }
@@ -419,33 +409,33 @@ impl<'de> Visitor<'de> for CryptoEnumVisitor {
         write!(fmt, "variant identifier")
     }
 
-    fn visit_u64<E: Error>(self, v:u64) -> Result<Self::Value, E> {
+    fn visit_u64<E: Error>(self, v: u64) -> Result<Self::Value, E> {
         match v {
-            FOG_TYPE_ENUM_HASH_INDEX             => Ok(CryptoEnum::Hash),
-            FOG_TYPE_ENUM_IDENTITY_INDEX         => Ok(CryptoEnum::Identity),
-            FOG_TYPE_ENUM_LOCK_ID_INDEX          => Ok(CryptoEnum::LockId),
-            FOG_TYPE_ENUM_STREAM_ID_INDEX        => Ok(CryptoEnum::StreamId),
-            FOG_TYPE_ENUM_DATA_LOCKBOX_INDEX     => Ok(CryptoEnum::DataLockbox),
+            FOG_TYPE_ENUM_HASH_INDEX => Ok(CryptoEnum::Hash),
+            FOG_TYPE_ENUM_IDENTITY_INDEX => Ok(CryptoEnum::Identity),
+            FOG_TYPE_ENUM_LOCK_ID_INDEX => Ok(CryptoEnum::LockId),
+            FOG_TYPE_ENUM_STREAM_ID_INDEX => Ok(CryptoEnum::StreamId),
+            FOG_TYPE_ENUM_DATA_LOCKBOX_INDEX => Ok(CryptoEnum::DataLockbox),
             FOG_TYPE_ENUM_IDENTITY_LOCKBOX_INDEX => Ok(CryptoEnum::IdentityLockbox),
-            FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX   => Ok(CryptoEnum::StreamLockbox),
-            FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX     => Ok(CryptoEnum::LockLockbox),
+            FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX => Ok(CryptoEnum::StreamLockbox),
+            FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX => Ok(CryptoEnum::LockLockbox),
             _ => Err(E::invalid_value(
-                    serde::de::Unexpected::Unsigned(v as u64),
-                    &"variant index 1 <= i <= 8"
+                serde::de::Unexpected::Unsigned(v as u64),
+                &"variant index 1 <= i <= 8",
             )),
         }
     }
 
     fn visit_str<E: Error>(self, v: &str) -> Result<Self::Value, E> {
         match v {
-            FOG_TYPE_ENUM_HASH_NAME             => Ok(CryptoEnum::Hash),
-            FOG_TYPE_ENUM_IDENTITY_NAME         => Ok(CryptoEnum::Identity),
-            FOG_TYPE_ENUM_LOCK_ID_NAME          => Ok(CryptoEnum::LockId),
-            FOG_TYPE_ENUM_STREAM_ID_NAME        => Ok(CryptoEnum::StreamId),
-            FOG_TYPE_ENUM_DATA_LOCKBOX_NAME     => Ok(CryptoEnum::DataLockbox),
+            FOG_TYPE_ENUM_HASH_NAME => Ok(CryptoEnum::Hash),
+            FOG_TYPE_ENUM_IDENTITY_NAME => Ok(CryptoEnum::Identity),
+            FOG_TYPE_ENUM_LOCK_ID_NAME => Ok(CryptoEnum::LockId),
+            FOG_TYPE_ENUM_STREAM_ID_NAME => Ok(CryptoEnum::StreamId),
+            FOG_TYPE_ENUM_DATA_LOCKBOX_NAME => Ok(CryptoEnum::DataLockbox),
             FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME => Ok(CryptoEnum::IdentityLockbox),
-            FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME   => Ok(CryptoEnum::StreamLockbox),
-            FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME     => Ok(CryptoEnum::LockLockbox),
+            FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME => Ok(CryptoEnum::StreamLockbox),
+            FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME => Ok(CryptoEnum::LockLockbox),
             _ => Err(E::unknown_variant(v, VARIANTS)),
         }
     }
@@ -456,225 +446,247 @@ impl<'de> Visitor<'de> for CryptoEnumVisitor {
             E::unknown_variant(v.as_ref(), VARIANTS)
         })?;
         match v {
-            FOG_TYPE_ENUM_HASH_NAME             => Ok(CryptoEnum::Hash),
-            FOG_TYPE_ENUM_IDENTITY_NAME         => Ok(CryptoEnum::Identity),
-            FOG_TYPE_ENUM_LOCK_ID_NAME          => Ok(CryptoEnum::LockId),
-            FOG_TYPE_ENUM_STREAM_ID_NAME        => Ok(CryptoEnum::StreamId),
-            FOG_TYPE_ENUM_DATA_LOCKBOX_NAME     => Ok(CryptoEnum::DataLockbox),
+            FOG_TYPE_ENUM_HASH_NAME => Ok(CryptoEnum::Hash),
+            FOG_TYPE_ENUM_IDENTITY_NAME => Ok(CryptoEnum::Identity),
+            FOG_TYPE_ENUM_LOCK_ID_NAME => Ok(CryptoEnum::LockId),
+            FOG_TYPE_ENUM_STREAM_ID_NAME => Ok(CryptoEnum::StreamId),
+            FOG_TYPE_ENUM_DATA_LOCKBOX_NAME => Ok(CryptoEnum::DataLockbox),
             FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME => Ok(CryptoEnum::IdentityLockbox),
-            FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME   => Ok(CryptoEnum::StreamLockbox),
-            FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME     => Ok(CryptoEnum::LockLockbox),
+            FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME => Ok(CryptoEnum::StreamLockbox),
+            FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME => Ok(CryptoEnum::LockLockbox),
             _ => Err(E::unknown_variant(v, VARIANTS)),
         }
     }
-
 }
 impl<'de> Deserialize<'de> for CryptoEnum {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         deserializer.deserialize_identifier(CryptoEnumVisitor)
     }
 }
 
-
 impl<'de> Deserialize<'de> for Hash {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         struct HashVisitor {
-            is_human_readable: bool
+            is_human_readable: bool,
         }
 
-        impl <'de> serde::de::Visitor<'de> for HashVisitor {
+        impl<'de> serde::de::Visitor<'de> for HashVisitor {
             type Value = Hash;
 
             fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                write!(fmt, "{} enum with variant {} (id {})",
-                    FOG_TYPE_ENUM,
-                    FOG_TYPE_ENUM_HASH_NAME,
-                    FOG_TYPE_ENUM_HASH_INDEX
+                write!(
+                    fmt,
+                    "{} enum with variant {} (id {})",
+                    FOG_TYPE_ENUM, FOG_TYPE_ENUM_HASH_NAME, FOG_TYPE_ENUM_HASH_INDEX
                 )
             }
 
             fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-                where A: EnumAccess<'de>
+            where
+                A: EnumAccess<'de>,
             {
                 let variant = match data.variant()? {
                     (CryptoEnum::Hash, variant) => variant,
-                    (e, _) => return Err(A::Error::invalid_type(Unexpected::Other(e.as_str()), &"Hash")),
+                    (e, _) => {
+                        return Err(A::Error::invalid_type(
+                            Unexpected::Other(e.as_str()),
+                            &"Hash",
+                        ))
+                    }
                 };
                 if self.is_human_readable {
                     let base58: String = variant.newtype_variant()?;
                     Hash::from_base58(&base58).map_err(|e| A::Error::custom(e.serde_err()))
-                }
-                else {
+                } else {
                     let bytes: &Bytes = variant.newtype_variant()?;
                     Hash::try_from(bytes.as_ref()).map_err(|e| A::Error::custom(e.serde_err()))
                 }
             }
-
         }
         let is_human_readable = deserializer.is_human_readable();
         deserializer.deserialize_enum(
             FOG_TYPE_ENUM,
             &[FOG_TYPE_ENUM_HASH_NAME],
-            HashVisitor{is_human_readable}
+            HashVisitor { is_human_readable },
         )
     }
 }
 
 impl<'de> Deserialize<'de> for Identity {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         struct IdentityVisitor {
-            is_human_readable: bool
+            is_human_readable: bool,
         }
 
-        impl <'de> serde::de::Visitor<'de> for IdentityVisitor {
+        impl<'de> serde::de::Visitor<'de> for IdentityVisitor {
             type Value = Identity;
 
             fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                write!(fmt, "{} enum with variant {} (id {})",
-                    FOG_TYPE_ENUM,
-                    FOG_TYPE_ENUM_IDENTITY_NAME,
-                    FOG_TYPE_ENUM_IDENTITY_INDEX
+                write!(
+                    fmt,
+                    "{} enum with variant {} (id {})",
+                    FOG_TYPE_ENUM, FOG_TYPE_ENUM_IDENTITY_NAME, FOG_TYPE_ENUM_IDENTITY_INDEX
                 )
             }
 
             fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-                where A: EnumAccess<'de>
+            where
+                A: EnumAccess<'de>,
             {
                 let variant = match data.variant()? {
                     (CryptoEnum::Identity, variant) => variant,
-                    (e, _) => return Err(A::Error::invalid_type(Unexpected::Other(e.as_str()), &"Identity")),
+                    (e, _) => {
+                        return Err(A::Error::invalid_type(
+                            Unexpected::Other(e.as_str()),
+                            &"Identity",
+                        ))
+                    }
                 };
                 if self.is_human_readable {
                     let base58: String = variant.newtype_variant()?;
                     Identity::from_base58(&base58).map_err(|e| A::Error::custom(e.serde_err()))
-                }
-                else {
+                } else {
                     let bytes: &Bytes = variant.newtype_variant()?;
                     Identity::try_from(bytes.as_ref()).map_err(|e| A::Error::custom(e.serde_err()))
                 }
             }
-
         }
         let is_human_readable = deserializer.is_human_readable();
         deserializer.deserialize_enum(
             FOG_TYPE_ENUM,
             &[FOG_TYPE_ENUM_IDENTITY_NAME],
-            IdentityVisitor{is_human_readable}
+            IdentityVisitor { is_human_readable },
         )
     }
 }
 
 impl<'de> Deserialize<'de> for StreamId {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         struct StreamIdVisitor {
-            is_human_readable: bool
+            is_human_readable: bool,
         }
 
-        impl <'de> serde::de::Visitor<'de> for StreamIdVisitor {
+        impl<'de> serde::de::Visitor<'de> for StreamIdVisitor {
             type Value = StreamId;
 
             fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                write!(fmt, "{} enum with variant {} (id {})",
-                    FOG_TYPE_ENUM,
-                    FOG_TYPE_ENUM_STREAM_ID_NAME,
-                    FOG_TYPE_ENUM_STREAM_ID_INDEX
+                write!(
+                    fmt,
+                    "{} enum with variant {} (id {})",
+                    FOG_TYPE_ENUM, FOG_TYPE_ENUM_STREAM_ID_NAME, FOG_TYPE_ENUM_STREAM_ID_INDEX
                 )
             }
 
             fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-                where A: EnumAccess<'de>
+            where
+                A: EnumAccess<'de>,
             {
                 let variant = match data.variant()? {
                     (CryptoEnum::StreamId, variant) => variant,
-                    (e, _) => return Err(A::Error::invalid_type(Unexpected::Other(e.as_str()), &"StreamId")),
+                    (e, _) => {
+                        return Err(A::Error::invalid_type(
+                            Unexpected::Other(e.as_str()),
+                            &"StreamId",
+                        ))
+                    }
                 };
                 if self.is_human_readable {
                     let base58: String = variant.newtype_variant()?;
                     StreamId::from_base58(&base58).map_err(|e| A::Error::custom(e.serde_err()))
-                }
-                else {
+                } else {
                     let bytes: &Bytes = variant.newtype_variant()?;
                     StreamId::try_from(bytes.as_ref()).map_err(|e| A::Error::custom(e.serde_err()))
                 }
             }
-
         }
         let is_human_readable = deserializer.is_human_readable();
         deserializer.deserialize_enum(
             FOG_TYPE_ENUM,
             &[FOG_TYPE_ENUM_STREAM_ID_NAME],
-            StreamIdVisitor{is_human_readable}
+            StreamIdVisitor { is_human_readable },
         )
     }
 }
 
 impl<'de> Deserialize<'de> for LockId {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         struct LockIdVisitor {
-            is_human_readable: bool
+            is_human_readable: bool,
         }
 
-        impl <'de> serde::de::Visitor<'de> for LockIdVisitor {
+        impl<'de> serde::de::Visitor<'de> for LockIdVisitor {
             type Value = LockId;
 
             fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                write!(fmt, "{} enum with variant {} (id {})",
-                    FOG_TYPE_ENUM,
-                    FOG_TYPE_ENUM_LOCK_ID_NAME,
-                    FOG_TYPE_ENUM_LOCK_ID_INDEX
+                write!(
+                    fmt,
+                    "{} enum with variant {} (id {})",
+                    FOG_TYPE_ENUM, FOG_TYPE_ENUM_LOCK_ID_NAME, FOG_TYPE_ENUM_LOCK_ID_INDEX
                 )
             }
 
             fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-                where A: EnumAccess<'de>
+            where
+                A: EnumAccess<'de>,
             {
                 let variant = match data.variant()? {
                     (CryptoEnum::LockId, variant) => variant,
-                    (e, _) => return Err(A::Error::invalid_type(Unexpected::Other(e.as_str()), &"LockId")),
+                    (e, _) => {
+                        return Err(A::Error::invalid_type(
+                            Unexpected::Other(e.as_str()),
+                            &"LockId",
+                        ))
+                    }
                 };
                 if self.is_human_readable {
                     let base58: String = variant.newtype_variant()?;
                     LockId::from_base58(&base58).map_err(|e| A::Error::custom(e.serde_err()))
-                }
-                else {
+                } else {
                     let bytes: &Bytes = variant.newtype_variant()?;
                     LockId::try_from(bytes.as_ref()).map_err(|e| A::Error::custom(e.serde_err()))
                 }
             }
-
         }
         let is_human_readable = deserializer.is_human_readable();
         deserializer.deserialize_enum(
             FOG_TYPE_ENUM,
             &[FOG_TYPE_ENUM_LOCK_ID_NAME],
-            LockIdVisitor{is_human_readable}
+            LockIdVisitor { is_human_readable },
         )
     }
 }
 
 impl<'de> Deserialize<'de> for DataLockbox {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         struct LockboxVisitor {
-            is_human_readable: bool
+            is_human_readable: bool,
         }
 
-        impl <'de> serde::de::Visitor<'de> for LockboxVisitor {
+        impl<'de> serde::de::Visitor<'de> for LockboxVisitor {
             type Value = DataLockbox;
 
             fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                write!(fmt, "{} enum with variant {} (id {})",
+                write!(
+                    fmt,
+                    "{} enum with variant {} (id {})",
                     FOG_TYPE_ENUM,
                     FOG_TYPE_ENUM_DATA_LOCKBOX_NAME,
                     FOG_TYPE_ENUM_DATA_LOCKBOX_INDEX
@@ -682,11 +694,17 @@ impl<'de> Deserialize<'de> for DataLockbox {
             }
 
             fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-                where A: EnumAccess<'de>
+            where
+                A: EnumAccess<'de>,
             {
                 let variant = match data.variant()? {
                     (CryptoEnum::DataLockbox, variant) => variant,
-                    (e, _) => return Err(A::Error::invalid_type(Unexpected::Other(e.as_str()), &"DataLockbox")),
+                    (e, _) => {
+                        return Err(A::Error::invalid_type(
+                            Unexpected::Other(e.as_str()),
+                            &"DataLockbox",
+                        ))
+                    }
                 };
                 if self.is_human_readable {
                     let v: String = variant.newtype_variant()?;
@@ -694,36 +712,37 @@ impl<'de> Deserialize<'de> for DataLockbox {
                     Ok(DataLockboxRef::from_bytes(&bytes[..])
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
-                }
-                else {
+                } else {
                     let bytes: &Bytes = variant.newtype_variant()?;
                     Ok(DataLockboxRef::from_bytes(&bytes)
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
                 }
             }
-
         }
         let is_human_readable = deserializer.is_human_readable();
         deserializer.deserialize_enum(
             FOG_TYPE_ENUM,
             &[FOG_TYPE_ENUM_DATA_LOCKBOX_NAME],
-            LockboxVisitor{is_human_readable}
+            LockboxVisitor { is_human_readable },
         )
     }
 }
 
 impl<'de: 'a, 'a> Deserialize<'de> for &'a DataLockboxRef {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         struct LockboxVisitor;
 
-        impl <'de> serde::de::Visitor<'de> for LockboxVisitor {
+        impl<'de> serde::de::Visitor<'de> for LockboxVisitor {
             type Value = &'de DataLockboxRef;
 
             fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                write!(fmt, "{} enum with variant {} (id {})",
+                write!(
+                    fmt,
+                    "{} enum with variant {} (id {})",
                     FOG_TYPE_ENUM,
                     FOG_TYPE_ENUM_DATA_LOCKBOX_NAME,
                     FOG_TYPE_ENUM_DATA_LOCKBOX_INDEX
@@ -731,16 +750,21 @@ impl<'de: 'a, 'a> Deserialize<'de> for &'a DataLockboxRef {
             }
 
             fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-                where A: EnumAccess<'de>
+            where
+                A: EnumAccess<'de>,
             {
                 let variant = match data.variant()? {
                     (CryptoEnum::DataLockbox, variant) => variant,
-                    (e, _) => return Err(A::Error::invalid_type(Unexpected::Other(e.as_str()), &"DataLockbox")),
+                    (e, _) => {
+                        return Err(A::Error::invalid_type(
+                            Unexpected::Other(e.as_str()),
+                            &"DataLockbox",
+                        ))
+                    }
                 };
                 let bytes: &Bytes = variant.newtype_variant()?;
                 DataLockboxRef::from_bytes(&bytes).map_err(|e| A::Error::custom(e.serde_err()))
             }
-
         }
         deserializer.deserialize_enum(
             FOG_TYPE_ENUM,
@@ -752,17 +776,20 @@ impl<'de: 'a, 'a> Deserialize<'de> for &'a DataLockboxRef {
 
 impl<'de> Deserialize<'de> for IdentityLockbox {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         struct LockboxVisitor {
-            is_human_readable: bool
+            is_human_readable: bool,
         }
 
-        impl <'de> serde::de::Visitor<'de> for LockboxVisitor {
+        impl<'de> serde::de::Visitor<'de> for LockboxVisitor {
             type Value = IdentityLockbox;
 
             fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                write!(fmt, "{} enum with variant {} (id {})",
+                write!(
+                    fmt,
+                    "{} enum with variant {} (id {})",
                     FOG_TYPE_ENUM,
                     FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME,
                     FOG_TYPE_ENUM_IDENTITY_LOCKBOX_INDEX
@@ -770,11 +797,17 @@ impl<'de> Deserialize<'de> for IdentityLockbox {
             }
 
             fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-                where A: EnumAccess<'de>
+            where
+                A: EnumAccess<'de>,
             {
                 let variant = match data.variant()? {
                     (CryptoEnum::IdentityLockbox, variant) => variant,
-                    (e, _) => return Err(A::Error::invalid_type(Unexpected::Other(e.as_str()), &"IdentityLockbox")),
+                    (e, _) => {
+                        return Err(A::Error::invalid_type(
+                            Unexpected::Other(e.as_str()),
+                            &"IdentityLockbox",
+                        ))
+                    }
                 };
                 if self.is_human_readable {
                     let v: String = variant.newtype_variant()?;
@@ -782,36 +815,37 @@ impl<'de> Deserialize<'de> for IdentityLockbox {
                     Ok(IdentityLockboxRef::from_bytes(&bytes[..])
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
-                }
-                else {
+                } else {
                     let bytes: &Bytes = variant.newtype_variant()?;
                     Ok(IdentityLockboxRef::from_bytes(&bytes)
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
                 }
             }
-
         }
         let is_human_readable = deserializer.is_human_readable();
         deserializer.deserialize_enum(
             FOG_TYPE_ENUM,
             &[FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME],
-            LockboxVisitor{is_human_readable}
+            LockboxVisitor { is_human_readable },
         )
     }
 }
 
 impl<'de: 'a, 'a> Deserialize<'de> for &'a IdentityLockboxRef {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         struct LockboxVisitor;
 
-        impl <'de> serde::de::Visitor<'de> for LockboxVisitor {
+        impl<'de> serde::de::Visitor<'de> for LockboxVisitor {
             type Value = &'de IdentityLockboxRef;
 
             fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                write!(fmt, "{} enum with variant {} (id {})",
+                write!(
+                    fmt,
+                    "{} enum with variant {} (id {})",
                     FOG_TYPE_ENUM,
                     FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME,
                     FOG_TYPE_ENUM_IDENTITY_LOCKBOX_INDEX
@@ -819,16 +853,21 @@ impl<'de: 'a, 'a> Deserialize<'de> for &'a IdentityLockboxRef {
             }
 
             fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-                where A: EnumAccess<'de>
+            where
+                A: EnumAccess<'de>,
             {
                 let variant = match data.variant()? {
                     (CryptoEnum::IdentityLockbox, variant) => variant,
-                    (e, _) => return Err(A::Error::invalid_type(Unexpected::Other(e.as_str()), &"IdentityLockbox")),
+                    (e, _) => {
+                        return Err(A::Error::invalid_type(
+                            Unexpected::Other(e.as_str()),
+                            &"IdentityLockbox",
+                        ))
+                    }
                 };
                 let bytes: &Bytes = variant.newtype_variant()?;
                 IdentityLockboxRef::from_bytes(&bytes).map_err(|e| A::Error::custom(e.serde_err()))
             }
-
         }
         deserializer.deserialize_enum(
             FOG_TYPE_ENUM,
@@ -840,17 +879,20 @@ impl<'de: 'a, 'a> Deserialize<'de> for &'a IdentityLockboxRef {
 
 impl<'de> Deserialize<'de> for StreamLockbox {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         struct LockboxVisitor {
-            is_human_readable: bool
+            is_human_readable: bool,
         }
 
-        impl <'de> serde::de::Visitor<'de> for LockboxVisitor {
+        impl<'de> serde::de::Visitor<'de> for LockboxVisitor {
             type Value = StreamLockbox;
 
             fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                write!(fmt, "{} enum with variant {} (id {})",
+                write!(
+                    fmt,
+                    "{} enum with variant {} (id {})",
                     FOG_TYPE_ENUM,
                     FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME,
                     FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX
@@ -858,11 +900,17 @@ impl<'de> Deserialize<'de> for StreamLockbox {
             }
 
             fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-                where A: EnumAccess<'de>
+            where
+                A: EnumAccess<'de>,
             {
                 let variant = match data.variant()? {
                     (CryptoEnum::StreamLockbox, variant) => variant,
-                    (e, _) => return Err(A::Error::invalid_type(Unexpected::Other(e.as_str()), &"StreamLockbox")),
+                    (e, _) => {
+                        return Err(A::Error::invalid_type(
+                            Unexpected::Other(e.as_str()),
+                            &"StreamLockbox",
+                        ))
+                    }
                 };
                 if self.is_human_readable {
                     let v: String = variant.newtype_variant()?;
@@ -870,36 +918,37 @@ impl<'de> Deserialize<'de> for StreamLockbox {
                     Ok(StreamLockboxRef::from_bytes(&bytes[..])
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
-                }
-                else {
+                } else {
                     let bytes: &Bytes = variant.newtype_variant()?;
                     Ok(StreamLockboxRef::from_bytes(&bytes)
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
                 }
             }
-
         }
         let is_human_readable = deserializer.is_human_readable();
         deserializer.deserialize_enum(
             FOG_TYPE_ENUM,
             &[FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME],
-            LockboxVisitor{is_human_readable}
+            LockboxVisitor { is_human_readable },
         )
     }
 }
 
 impl<'de: 'a, 'a> Deserialize<'de> for &'a StreamLockboxRef {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         struct LockboxVisitor;
 
-        impl <'de> serde::de::Visitor<'de> for LockboxVisitor {
+        impl<'de> serde::de::Visitor<'de> for LockboxVisitor {
             type Value = &'de StreamLockboxRef;
 
             fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                write!(fmt, "{} enum with variant {} (id {})",
+                write!(
+                    fmt,
+                    "{} enum with variant {} (id {})",
                     FOG_TYPE_ENUM,
                     FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME,
                     FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX
@@ -907,16 +956,21 @@ impl<'de: 'a, 'a> Deserialize<'de> for &'a StreamLockboxRef {
             }
 
             fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-                where A: EnumAccess<'de>
+            where
+                A: EnumAccess<'de>,
             {
                 let variant = match data.variant()? {
                     (CryptoEnum::StreamLockbox, variant) => variant,
-                    (e, _) => return Err(A::Error::invalid_type(Unexpected::Other(e.as_str()), &"StreamLockbox")),
+                    (e, _) => {
+                        return Err(A::Error::invalid_type(
+                            Unexpected::Other(e.as_str()),
+                            &"StreamLockbox",
+                        ))
+                    }
                 };
                 let bytes: &Bytes = variant.newtype_variant()?;
                 StreamLockboxRef::from_bytes(&bytes).map_err(|e| A::Error::custom(e.serde_err()))
             }
-
         }
         deserializer.deserialize_enum(
             FOG_TYPE_ENUM,
@@ -928,17 +982,20 @@ impl<'de: 'a, 'a> Deserialize<'de> for &'a StreamLockboxRef {
 
 impl<'de> Deserialize<'de> for LockLockbox {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         struct LockboxVisitor {
-            is_human_readable: bool
+            is_human_readable: bool,
         }
 
-        impl <'de> serde::de::Visitor<'de> for LockboxVisitor {
+        impl<'de> serde::de::Visitor<'de> for LockboxVisitor {
             type Value = LockLockbox;
 
             fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                write!(fmt, "{} enum with variant {} (id {})",
+                write!(
+                    fmt,
+                    "{} enum with variant {} (id {})",
                     FOG_TYPE_ENUM,
                     FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME,
                     FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX
@@ -946,11 +1003,17 @@ impl<'de> Deserialize<'de> for LockLockbox {
             }
 
             fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-                where A: EnumAccess<'de>
+            where
+                A: EnumAccess<'de>,
             {
                 let variant = match data.variant()? {
                     (CryptoEnum::LockLockbox, variant) => variant,
-                    (e, _) => return Err(A::Error::invalid_type(Unexpected::Other(e.as_str()), &"LockLockbox")),
+                    (e, _) => {
+                        return Err(A::Error::invalid_type(
+                            Unexpected::Other(e.as_str()),
+                            &"LockLockbox",
+                        ))
+                    }
                 };
                 if self.is_human_readable {
                     let v: String = variant.newtype_variant()?;
@@ -958,36 +1021,37 @@ impl<'de> Deserialize<'de> for LockLockbox {
                     Ok(LockLockboxRef::from_bytes(&bytes[..])
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
-                }
-                else {
+                } else {
                     let bytes: &Bytes = variant.newtype_variant()?;
                     Ok(LockLockboxRef::from_bytes(&bytes)
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
                 }
             }
-
         }
         let is_human_readable = deserializer.is_human_readable();
         deserializer.deserialize_enum(
             FOG_TYPE_ENUM,
             &[FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME],
-            LockboxVisitor{is_human_readable}
+            LockboxVisitor { is_human_readable },
         )
     }
 }
 
 impl<'de: 'a, 'a> Deserialize<'de> for &'a LockLockboxRef {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         struct LockboxVisitor;
 
-        impl <'de> serde::de::Visitor<'de> for LockboxVisitor {
+        impl<'de> serde::de::Visitor<'de> for LockboxVisitor {
             type Value = &'de LockLockboxRef;
 
             fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                write!(fmt, "{} enum with variant {} (id {})",
+                write!(
+                    fmt,
+                    "{} enum with variant {} (id {})",
                     FOG_TYPE_ENUM,
                     FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME,
                     FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX
@@ -995,16 +1059,21 @@ impl<'de: 'a, 'a> Deserialize<'de> for &'a LockLockboxRef {
             }
 
             fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-                where A: EnumAccess<'de>
+            where
+                A: EnumAccess<'de>,
             {
                 let variant = match data.variant()? {
                     (CryptoEnum::LockLockbox, variant) => variant,
-                    (e, _) => return Err(A::Error::invalid_type(Unexpected::Other(e.as_str()), &"LockLockbox")),
+                    (e, _) => {
+                        return Err(A::Error::invalid_type(
+                            Unexpected::Other(e.as_str()),
+                            &"LockLockbox",
+                        ))
+                    }
                 };
                 let bytes: &Bytes = variant.newtype_variant()?;
                 LockLockboxRef::from_bytes(&bytes).map_err(|e| A::Error::custom(e.serde_err()))
             }
-
         }
         deserializer.deserialize_enum(
             FOG_TYPE_ENUM,
@@ -1016,17 +1085,10 @@ impl<'de: 'a, 'a> Deserialize<'de> for &'a LockLockboxRef {
 
 mod test {
 
-    // I have no idea why this gets marked as "unused"... because the code will not compile without 
+    // I have no idea why this gets marked as "unused"... because the code will not compile without
     // it 🙃
     #[allow(unused_imports)]
-    use crate::{
-        hash::Hash,
-        identity::Identity,
-        stream::StreamId,
-        lock::LockId,
-        lockbox::*,
-    };
-
+    use crate::{hash::Hash, identity::Identity, lock::LockId, lockbox::*, stream::StreamId};
 
     #[test]
     fn serde_json_hash() {
