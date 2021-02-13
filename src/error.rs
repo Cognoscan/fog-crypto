@@ -30,6 +30,33 @@ pub enum CryptoError {
     NotSupportedByVault,
 }
 
+impl CryptoError {
+    pub fn serde_err(&self) -> String {
+        match *self {
+            CryptoError::UnsupportedVersion(version) => {
+                format!("crypto version ({}) not supported.", version)
+            }
+            CryptoError::OldVersion(version) => {
+                format!("crypto version ({}) old and deemed unsafe", version)
+            }
+            CryptoError::DecryptFailed => format!("could not decrypt with key"),
+            CryptoError::BadLength {
+                step,
+                actual,
+                expected,
+            } => format!(
+                "expected data length {}, but got {} on step [{}]",
+                expected, actual, step
+            ),
+            CryptoError::BadKey => format!("crypto key is weak or invalid"),
+            CryptoError::BadFormat(s) => format!("format of data does not match spec: {}", s),
+            CryptoError::ObjectMismatch(s) => format!("object mismatch: {}", s),
+            CryptoError::SignatureFailed => format!("signature verification failed"),
+            CryptoError::NotSupportedByVault => format!("vault doesn't support this operation"),
+        }
+    }
+}
+
 use std::fmt;
 impl fmt::Display for CryptoError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

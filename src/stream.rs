@@ -636,6 +636,14 @@ impl StreamId {
         &self.inner[1..]
     }
 
+    /// Convert into a byte vector. For extending an existing byte vector, see
+    /// [`encode_vec`](Self::encode_vec).
+    pub fn as_vec(&self) -> Vec<u8> {
+        let mut v = Vec::new();
+        self.encode_vec(&mut v);
+        v
+    }
+
     /// Convert into a base58-encoded StreamId.
     pub fn to_base58(&self) -> String {
         bs58::encode(&self.inner).into_string()

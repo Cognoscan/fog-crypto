@@ -9,7 +9,7 @@
 //! (see [Cryptographic Versioning](#cryptographic-versioning)). On the plus side, it's pretty hard
 //! to misuse this library in ways that leak secrets and compromise security. On the downside, this
 //! library is pretty strongly meant for working with stored data, not communication protocols, and
-//! cannot support even remotely exotic cryptographic operations. Forcing use of a single preferred
+//! cannot support even remotely unusual cryptographic operations. Forcing use of a single preferred
 //! set of algorithms also greatly limits hardware compatibility.
 //!
 //! # User Guidelines
@@ -110,6 +110,9 @@
 //! hash & symmetric encryption algorithms.
 //!
 //! [StrictVerification]: https://docs.rs/ed25519-dalek/1.0.1/ed25519_dalek/struct.PublicKey.html#method.verify_strict
+
+#[cfg(feature="with-serde")]
+pub mod serde;
 
 mod error;
 pub use self::error::CryptoError;
