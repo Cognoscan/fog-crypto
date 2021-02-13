@@ -395,7 +395,7 @@ pub enum CryptoEnum {
 }
 
 impl CryptoEnum {
-    fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         use CryptoEnum::*;
         match *self {
             Time => "Time",
