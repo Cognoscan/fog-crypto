@@ -16,6 +16,8 @@
 
 /// Name marker used for the library's fictional Enum type
 pub const FOG_TYPE_ENUM: &str = "_FogType";
+/// Enum variant name for `Time` Timestamp (used by fog-pack)
+pub const FOG_TYPE_ENUM_TIME_NAME: &str = "Time";
 /// Enum variant name for [`Hash`](crate::hash::Hash)
 pub const FOG_TYPE_ENUM_HASH_NAME: &str = "Hash";
 /// Enum variant name for [`Identity`](crate::identity::Identity)
@@ -33,6 +35,8 @@ pub const FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME: &str = "StreamLockbox";
 /// Enum variant name for [`LockLockbox`](crate::lockbox::LockLockbox)
 pub const FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME: &str = "LockLockbox";
 
+/// Enum variant index for `Time` Timestamp (used by fog-pack)
+pub const FOG_TYPE_ENUM_TIME_INDEX: u64 = 0;
 /// Enum variant index for [`Hash`](crate::hash::Hash)
 pub const FOG_TYPE_ENUM_HASH_INDEX: u64 = 1;
 /// Enum variant index for [`Identity`](crate::identity::Identity)
@@ -375,7 +379,11 @@ impl Serialize for LockLockboxRef {
 // Deserialization
 ///////////////////////////////////////////////////////////////////////////////
 
-enum CryptoEnum {
+#[doc(hidden)]
+/// Used for deserialization of the type identifier. Made public only so it can be used by 
+/// fog-pack.
+pub enum CryptoEnum {
+    Time,
     Hash,
     Identity,
     LockId,
@@ -390,6 +398,7 @@ impl CryptoEnum {
     fn as_str(&self) -> &'static str {
         use CryptoEnum::*;
         match *self {
+            Time => "Time",
             Hash => "Hash",
             Identity => "Identity",
             LockId => "LockId",
@@ -411,6 +420,7 @@ impl<'de> Visitor<'de> for CryptoEnumVisitor {
 
     fn visit_u64<E: Error>(self, v: u64) -> Result<Self::Value, E> {
         match v {
+            FOG_TYPE_ENUM_TIME_INDEX => Ok(CryptoEnum::Time),
             FOG_TYPE_ENUM_HASH_INDEX => Ok(CryptoEnum::Hash),
             FOG_TYPE_ENUM_IDENTITY_INDEX => Ok(CryptoEnum::Identity),
             FOG_TYPE_ENUM_LOCK_ID_INDEX => Ok(CryptoEnum::LockId),
@@ -428,6 +438,7 @@ impl<'de> Visitor<'de> for CryptoEnumVisitor {
 
     fn visit_str<E: Error>(self, v: &str) -> Result<Self::Value, E> {
         match v {
+            FOG_TYPE_ENUM_TIME_NAME => Ok(CryptoEnum::Time),
             FOG_TYPE_ENUM_HASH_NAME => Ok(CryptoEnum::Hash),
             FOG_TYPE_ENUM_IDENTITY_NAME => Ok(CryptoEnum::Identity),
             FOG_TYPE_ENUM_LOCK_ID_NAME => Ok(CryptoEnum::LockId),
@@ -446,6 +457,7 @@ impl<'de> Visitor<'de> for CryptoEnumVisitor {
             E::unknown_variant(v.as_ref(), VARIANTS)
         })?;
         match v {
+            FOG_TYPE_ENUM_TIME_NAME => Ok(CryptoEnum::Time),
             FOG_TYPE_ENUM_HASH_NAME => Ok(CryptoEnum::Hash),
             FOG_TYPE_ENUM_IDENTITY_NAME => Ok(CryptoEnum::Identity),
             FOG_TYPE_ENUM_LOCK_ID_NAME => Ok(CryptoEnum::LockId),
