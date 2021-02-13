@@ -50,7 +50,7 @@ pub const FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX   : u64 = 7;
 /// Enum variant index for [`LockLockbox`](crate::lockbox::LockLockbox)
 pub const FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX     : u64 = 8;
 
-const VARIANTS: &'static [&'static str] = &[
+const VARIANTS: &[&str] = &[
     FOG_TYPE_ENUM,
     FOG_TYPE_ENUM_HASH_NAME,
     FOG_TYPE_ENUM_IDENTITY_NAME,

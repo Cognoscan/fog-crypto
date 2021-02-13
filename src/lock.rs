@@ -351,13 +351,13 @@ impl LockId {
     /// Encode onto an existing byte vector. Writes out the version followed by the public signing
     /// key. It does not include any length information in the encoding.
     pub fn encode_vec(&self, buf: &mut Vec<u8>) {
-        buf.reserve(self.len());
+        buf.reserve(self.size());
         buf.push(self.version());
         buf.extend_from_slice(self.inner.as_bytes());
     }
 
     /// Get the length of this Identity once encoded as bytes.
-    pub fn len(&self) -> usize {
+    pub fn size(&self) -> usize {
         1 + V1_LOCK_ID_SIZE
     }
 }
@@ -382,11 +382,11 @@ impl TryFrom<&[u8]> for LockId {
             });
         }
         let inner: [u8; V1_LOCK_ID_SIZE] =
-            TryFrom::try_from(data).or(Err(CryptoError::BadLength {
+            TryFrom::try_from(data).map_err(|_| CryptoError::BadLength {
                 step: "get LockId public key",
                 expected: V1_LOCK_ID_SIZE,
                 actual: data.len(),
-            }))?;
+            })?;
         Ok(Self {
             inner: x25519_dalek::PublicKey::from(inner),
         })
@@ -459,7 +459,7 @@ pub fn lock_id_encrypt(
     let version = id.version();
     let tag_len = lockbox_tag_size(version);
     let nonce_len = lockbox_nonce_size(version);
-    let header_len = 2 + id.len() + eph_pub.as_bytes().len();
+    let header_len = 2 + id.size() + eph_pub.as_bytes().len();
     let len = header_len + nonce_len + content.len() + tag_len;
     let mut lockbox = Vec::with_capacity(len);
 
@@ -756,7 +756,7 @@ mod tests {
         let id = key.id();
         let mut id_vec = Vec::new();
         id.encode_vec(&mut id_vec);
-        assert_eq!(id_vec.len(), id.len());
+        assert_eq!(id_vec.len(), id.size());
         let id = LockId::try_from(&id_vec[..]).unwrap();
         assert_eq!(&id, key.id());
     }

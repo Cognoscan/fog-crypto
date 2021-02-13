@@ -39,7 +39,7 @@ impl CryptoError {
             CryptoError::OldVersion(version) => {
                 format!("crypto version ({}) old and deemed unsafe", version)
             }
-            CryptoError::DecryptFailed => format!("could not decrypt with key"),
+            CryptoError::DecryptFailed => "could not decrypt with key".to_string(),
             CryptoError::BadLength {
                 step,
                 actual,
@@ -48,11 +48,11 @@ impl CryptoError {
                 "expected data length {}, but got {} on step [{}]",
                 expected, actual, step
             ),
-            CryptoError::BadKey => format!("crypto key is weak or invalid"),
+            CryptoError::BadKey => "crypto key is weak or invalid".to_string(),
             CryptoError::BadFormat(s) => format!("format of data does not match spec: {}", s),
             CryptoError::ObjectMismatch(s) => format!("object mismatch: {}", s),
-            CryptoError::SignatureFailed => format!("signature verification failed"),
-            CryptoError::NotSupportedByVault => format!("vault doesn't support this operation"),
+            CryptoError::SignatureFailed => "signature verification failed".to_string(),
+            CryptoError::NotSupportedByVault => "vault doesn't support this operation".to_string(),
         }
     }
 }

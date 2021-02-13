@@ -1004,7 +1004,7 @@ impl LockboxRef {
                     step: "get lockbox component lengths",
                     expected: id_len + nonce_len + tag_len,
                     actual: parse.len(),
-                })?;
+                });
             }
             // Extract the StreamId
             let (raw_id, _) = parse.split_at(id_len);
@@ -1032,7 +1032,7 @@ impl LockboxRef {
                     step: "get lockbox component lengths",
                     expected: id_len + eph_len + nonce_len + tag_len,
                     actual: parse.len(),
-                })?;
+                });
             }
             // Extract the LockId
             let (raw_id, _) = parse.split_at(id_len);

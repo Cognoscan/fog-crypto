@@ -465,7 +465,7 @@ impl StreamInterface for ContainedStreamKey {
         let version = id.version();
         let tag_len = lockbox_tag_size(version);
         let nonce_len = lockbox_nonce_size(version);
-        let header_len = 2 + id.len();
+        let header_len = 2 + id.size();
         let len = header_len + nonce_len + content.len() + tag_len;
         let mut lockbox: Vec<u8> = Vec::with_capacity(len);
         let mut nonce = [0u8; crate::lockbox::V1_LOCKBOX_NONCE_SIZE];
@@ -658,11 +658,11 @@ impl StreamId {
     }
 
     pub fn encode_vec(&self, buf: &mut Vec<u8>) {
-        buf.reserve(self.len());
+        buf.reserve(self.size());
         buf.extend_from_slice(&self.inner);
     }
 
-    pub fn len(&self) -> usize {
+    pub fn size(&self) -> usize {
         self.inner.len()
     }
 }
@@ -795,7 +795,7 @@ mod tests {
         let id = key.id();
         let mut id_vec = Vec::new();
         id.encode_vec(&mut id_vec);
-        assert_eq!(id_vec.len(), id.len());
+        assert_eq!(id_vec.len(), id.size());
         let id = StreamId::try_from(&id_vec[..]).unwrap();
         assert_eq!(&id, key.id());
     }

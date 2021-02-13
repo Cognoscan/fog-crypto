@@ -219,7 +219,7 @@ pub fn new_identity_key(interface: Arc<dyn SignInterface>) -> IdentityKey {
 /// An Identity, wrapping a public signing key.
 ///
 /// This is useful as an identifier of who has created a given signature.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct Identity {
     id: ed25519_dalek::PublicKey,
 }
@@ -260,13 +260,13 @@ impl Identity {
     /// key. It does not include any length information in the encoding.
     pub fn encode_vec(&self, buf: &mut Vec<u8>) {
         let id = self.id.as_bytes();
-        buf.reserve(self.len());
+        buf.reserve(self.size());
         buf.push(self.version());
         buf.extend_from_slice(id);
     }
 
     /// Get the length of this Identity once encoded as bytes.
-    pub fn len(&self) -> usize {
+    pub fn size(&self) -> usize {
         1 + self.id.as_ref().len()
     }
 }
@@ -331,9 +331,16 @@ impl fmt::UpperHex for Identity {
     }
 }
 
+impl std::cmp::PartialEq for Identity {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl std::cmp::Eq for Identity {}
+
 impl std::hash::Hash for Identity {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        1u8.hash(state);
         self.id.as_bytes().hash(state);
     }
 }
@@ -400,7 +407,7 @@ impl ContainedIdKey {
 
         let inner = ed25519_dalek::Keypair::generate(csprng);
         let id = Identity {
-            id: inner.public.clone(),
+            id: inner.public,
         };
 
         Ok(Self { id, inner })
@@ -518,7 +525,7 @@ impl SignInterface for ContainedIdKey {
 /// 1. The Hash version byte
 /// 2. The encoded signing `Identity`
 /// 3. The cryptographic signature's raw bytes
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Signature {
     hash_version: u8,
     id: Identity,
@@ -546,8 +553,8 @@ impl Signature {
     }
 
     /// The length of the signature, in bytes, when encoded.
-    pub fn len(&self) -> usize {
-        1 + V1_IDENTITY_SIGN_SIZE + self.id.len()
+    pub fn size(&self) -> usize {
+        1 + V1_IDENTITY_SIGN_SIZE + self.id.size()
     }
 }
 
@@ -597,7 +604,7 @@ impl fmt::Debug for Signature {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct UnverifiedSignature {
     hash_version: u8,
     signature: ed25519_dalek::Signature,
@@ -741,7 +748,7 @@ mod tests {
         let id_v0 = id.as_vec();
         let mut id_v1 = Vec::new();
         id.encode_vec(&mut id_v1);
-        assert_eq!(id_v0.len(), id.len());
+        assert_eq!(id_v0.len(), id.size());
         assert_eq!(id_v0, id_v1);
         let id = Identity::try_from(&id_v0[..]).unwrap();
         assert_eq!(&id, key.id());
@@ -752,7 +759,7 @@ mod tests {
         let mut csprng = rand::rngs::OsRng;
         let key = IdentityKey::new_temp(&mut csprng);
         let id = key.id();
-        let len = id.len();
+        let len = id.size();
 
         let mut enc = Vec::new();
         id.encode_vec(&mut enc);
@@ -766,7 +773,7 @@ mod tests {
         let key = IdentityKey::new_temp(&mut csprng);
         let hash = Hash::new(b"I am a test string");
         let sign = key.sign(&hash);
-        let len = sign.len();
+        let len = sign.size();
 
         let mut enc = Vec::new();
         sign.encode_vec(&mut enc);

@@ -108,8 +108,7 @@ impl TryFrom<&[u8]> for Hash {
     type Error = CryptoError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let raw = value.as_ref();
-        let &version = raw.get(0).ok_or(CryptoError::BadLength {
+        let &version = value.get(0).ok_or(CryptoError::BadLength {
             step: "get hash version",
             actual: 0,
             expected: 1,
@@ -121,16 +120,16 @@ impl TryFrom<&[u8]> for Hash {
         }
 
         // Length check
-        if raw.len() != 1 + V1_DIGEST_SIZE {
+        if value.len() != 1 + V1_DIGEST_SIZE {
             return Err(CryptoError::BadLength {
                 step: "get hash digest (with version)",
-                actual: raw.len(),
+                actual: value.len(),
                 expected: 1 + V1_DIGEST_SIZE,
             });
         }
 
         Ok(Self {
-            data: Vec::from(raw),
+            data: Vec::from(value),
         })
     }
 }
