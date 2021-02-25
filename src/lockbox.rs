@@ -218,6 +218,7 @@ pub(crate) fn lockbox_tag_size(_version: u8) -> usize {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Clone)]
 pub struct LockLockbox(Lockbox);
 
 impl fmt::Debug for LockLockbox {
@@ -389,6 +390,7 @@ impl fmt::Debug for LockLockboxRef {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Clone)]
 pub struct IdentityLockbox(Lockbox);
 
 impl fmt::Debug for IdentityLockbox {
@@ -559,6 +561,7 @@ impl fmt::Debug for IdentityLockboxRef {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Clone)]
 pub struct StreamLockbox(Lockbox);
 
 impl fmt::Debug for StreamLockbox {
@@ -728,6 +731,7 @@ impl fmt::Debug for StreamLockboxRef {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Clone)]
 pub struct DataLockbox(Lockbox);
 
 impl fmt::Debug for DataLockbox {
