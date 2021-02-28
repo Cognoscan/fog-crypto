@@ -516,7 +516,7 @@ impl<'de> Deserialize<'de> for Hash {
                     let base58: String = variant.newtype_variant()?;
                     Hash::from_base58(&base58).map_err(|e| A::Error::custom(e.serde_err()))
                 } else {
-                    let bytes: &Bytes = variant.newtype_variant()?;
+                    let bytes: ByteBuf = variant.newtype_variant()?;
                     Hash::try_from(bytes.as_ref()).map_err(|e| A::Error::custom(e.serde_err()))
                 }
             }
@@ -567,7 +567,7 @@ impl<'de> Deserialize<'de> for Identity {
                     let base58: String = variant.newtype_variant()?;
                     Identity::from_base58(&base58).map_err(|e| A::Error::custom(e.serde_err()))
                 } else {
-                    let bytes: &Bytes = variant.newtype_variant()?;
+                    let bytes: ByteBuf = variant.newtype_variant()?;
                     Identity::try_from(bytes.as_ref()).map_err(|e| A::Error::custom(e.serde_err()))
                 }
             }
@@ -618,7 +618,7 @@ impl<'de> Deserialize<'de> for StreamId {
                     let base58: String = variant.newtype_variant()?;
                     StreamId::from_base58(&base58).map_err(|e| A::Error::custom(e.serde_err()))
                 } else {
-                    let bytes: &Bytes = variant.newtype_variant()?;
+                    let bytes: ByteBuf = variant.newtype_variant()?;
                     StreamId::try_from(bytes.as_ref()).map_err(|e| A::Error::custom(e.serde_err()))
                 }
             }
@@ -669,7 +669,7 @@ impl<'de> Deserialize<'de> for LockId {
                     let base58: String = variant.newtype_variant()?;
                     LockId::from_base58(&base58).map_err(|e| A::Error::custom(e.serde_err()))
                 } else {
-                    let bytes: &Bytes = variant.newtype_variant()?;
+                    let bytes: ByteBuf = variant.newtype_variant()?;
                     LockId::try_from(bytes.as_ref()).map_err(|e| A::Error::custom(e.serde_err()))
                 }
             }
