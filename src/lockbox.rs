@@ -218,7 +218,7 @@ pub(crate) fn lockbox_tag_size(_version: u8) -> usize {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct LockLockbox(Lockbox);
 
 impl fmt::Debug for LockLockbox {
@@ -286,6 +286,7 @@ impl std::borrow::Borrow<LockLockboxRef> for LockLockbox {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(PartialEq, Eq)]
 pub struct LockLockboxRef(LockboxRef);
 
 impl LockLockboxRef {
@@ -390,7 +391,7 @@ impl fmt::Debug for LockLockboxRef {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct IdentityLockbox(Lockbox);
 
 impl fmt::Debug for IdentityLockbox {
@@ -458,6 +459,7 @@ impl std::borrow::Borrow<IdentityLockboxRef> for IdentityLockbox {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(PartialEq, Eq)]
 pub struct IdentityLockboxRef(LockboxRef);
 
 impl IdentityLockboxRef {
@@ -561,7 +563,7 @@ impl fmt::Debug for IdentityLockboxRef {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct StreamLockbox(Lockbox);
 
 impl fmt::Debug for StreamLockbox {
@@ -628,6 +630,7 @@ impl std::borrow::Borrow<StreamLockboxRef> for StreamLockbox {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(PartialEq, Eq)]
 pub struct StreamLockboxRef(LockboxRef);
 
 impl StreamLockboxRef {
@@ -731,7 +734,7 @@ impl fmt::Debug for StreamLockboxRef {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct DataLockbox(Lockbox);
 
 impl fmt::Debug for DataLockbox {
@@ -798,6 +801,7 @@ impl std::borrow::Borrow<DataLockboxRef> for DataLockbox {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(PartialEq, Eq)]
 pub struct DataLockboxRef(LockboxRef);
 
 impl DataLockboxRef {
