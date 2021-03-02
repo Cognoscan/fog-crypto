@@ -218,7 +218,7 @@ pub(crate) fn lockbox_tag_size(_version: u8) -> usize {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct LockLockbox(Lockbox);
 
 impl fmt::Debug for LockLockbox {
@@ -286,7 +286,7 @@ impl std::borrow::Borrow<LockLockboxRef> for LockLockbox {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct LockLockboxRef(LockboxRef);
 
 impl LockLockboxRef {
@@ -391,7 +391,7 @@ impl fmt::Debug for LockLockboxRef {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct IdentityLockbox(Lockbox);
 
 impl fmt::Debug for IdentityLockbox {
@@ -459,7 +459,7 @@ impl std::borrow::Borrow<IdentityLockboxRef> for IdentityLockbox {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct IdentityLockboxRef(LockboxRef);
 
 impl IdentityLockboxRef {
@@ -563,7 +563,7 @@ impl fmt::Debug for IdentityLockboxRef {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct StreamLockbox(Lockbox);
 
 impl fmt::Debug for StreamLockbox {
@@ -630,7 +630,7 @@ impl std::borrow::Borrow<StreamLockboxRef> for StreamLockbox {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct StreamLockboxRef(LockboxRef);
 
 impl StreamLockboxRef {
@@ -734,7 +734,7 @@ impl fmt::Debug for StreamLockboxRef {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct DataLockbox(Lockbox);
 
 impl fmt::Debug for DataLockbox {
@@ -801,7 +801,7 @@ impl std::borrow::Borrow<DataLockboxRef> for DataLockbox {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct DataLockboxRef(LockboxRef);
 
 impl DataLockboxRef {
@@ -877,7 +877,7 @@ pub struct LockboxParts<'a> {
     pub ciphertext: &'a [u8],
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 struct Lockbox {
     inner: Vec<u8>,
 }
@@ -909,7 +909,7 @@ impl std::borrow::Borrow<LockboxRef> for Lockbox {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Hash)]
 struct LockboxRef {
     inner: [u8],
 }
