@@ -173,6 +173,12 @@ impl IdentityKey {
         self.interface.sign(hash)
     }
 
+    /// The maximum expected size of a signature from this key
+    pub fn max_signature_size(&self) -> usize {
+        // this comes straight from the Signature code
+        1 + V1_IDENTITY_SIGN_SIZE + self.id().size()
+    }
+
     /// Pack this key into a `Lockbox`, meant for the recipient specified by `lock`. Returns None if
     /// this key cannot be exported.
     pub fn export_for_lock<R: CryptoRng + RngCore>(
