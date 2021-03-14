@@ -14,8 +14,10 @@
 //!
 //! # User Guidelines
 //!
-//! You shouldn't be using this library directly. Portions of it should instead be exported by an
-//! implementor of a Vault, and you should use those. You can expect to see these primitives:
+//! You probably shouldn't be using this library directly. Portions of it should instead be 
+//! exported by an implementor of a Vault, and you should use those. Alternately, you might be 
+//! using this through [`fog-pack`](https://crates.io/crates/fog-pack), which also re-exports 
+//! portions of this library. You can expect to see these primitives:
 //!
 //! General:
 //! - [`Vault`]: A structure that can hold onto your cryptographic keys.
