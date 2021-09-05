@@ -1,5 +1,5 @@
 /// Possible cryptographic submodule error conditions.
-#[derive(Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum CryptoError {
     /// Crypto primitive uses a version this library doesn't recognize (or one it no longer
     /// accepts).
