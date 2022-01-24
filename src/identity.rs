@@ -612,13 +612,19 @@ impl fmt::Debug for Signature {
 pub struct UnverifiedSignature {
     hash_version: u8,
     signature: ed25519_dalek::Signature,
-    id: ed25519_dalek::PublicKey,
+    id: Identity,
 }
 
 impl UnverifiedSignature {
     /// Get the version of hash needed to complete the signature.
     pub fn hash_version(&self) -> u8 {
         self.hash_version
+    }
+
+    /// The public [`Identity`] provided with this signature. Because this is an unverified 
+    /// signature, there can be no assurance that this identity has actually signed the data.
+    pub fn signer(&self) -> &Identity {
+        &self.id
     }
 
     /// Verify the Signature, producing a verified Signature or failing.
@@ -630,6 +636,7 @@ impl UnverifiedSignature {
         }
         if self
             .id
+            .id
             .verify_strict(hash.digest(), &self.signature)
             .is_err()
         {
@@ -637,7 +644,7 @@ impl UnverifiedSignature {
         }
         Ok(Signature {
             hash_version: self.hash_version,
-            id: Identity { id: self.id },
+            id: self.id,
             inner: self.signature,
         })
     }
@@ -686,7 +693,7 @@ impl TryFrom<&[u8]> for UnverifiedSignature {
             expected: V1_IDENTITY_SIGN_SIZE,
             actual: data.len() - id_len,
         })?;
-        let id = ed25519_dalek::PublicKey::from_bytes(raw_id).or(Err(CryptoError::BadKey))?;
+        let id = Identity { id: ed25519_dalek::PublicKey::from_bytes(raw_id).or(Err(CryptoError::BadKey))? };
         let signature = ed25519_dalek::Signature::try_from(raw_signature)
             .or(Err(CryptoError::SignatureFailed))?;
         Ok(UnverifiedSignature {
