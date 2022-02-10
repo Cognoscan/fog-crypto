@@ -310,7 +310,7 @@ impl LockId {
         R: CryptoRng + RngCore,
     {
         data_lockbox_from_parts(lock_id_encrypt(
-            &self,
+            self,
             csprng,
             LockboxType::Data(false),
             content,

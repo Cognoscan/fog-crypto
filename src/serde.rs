@@ -726,7 +726,7 @@ impl<'de> Deserialize<'de> for DataLockbox {
                         .to_owned())
                 } else {
                     let bytes: &Bytes = variant.newtype_variant()?;
-                    Ok(DataLockboxRef::from_bytes(&bytes)
+                    Ok(DataLockboxRef::from_bytes(bytes)
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
                 }
@@ -775,7 +775,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for &'a DataLockboxRef {
                     }
                 };
                 let bytes: &Bytes = variant.newtype_variant()?;
-                DataLockboxRef::from_bytes(&bytes).map_err(|e| A::Error::custom(e.serde_err()))
+                DataLockboxRef::from_bytes(bytes).map_err(|e| A::Error::custom(e.serde_err()))
             }
         }
         deserializer.deserialize_enum(
@@ -829,7 +829,7 @@ impl<'de> Deserialize<'de> for IdentityLockbox {
                         .to_owned())
                 } else {
                     let bytes: &Bytes = variant.newtype_variant()?;
-                    Ok(IdentityLockboxRef::from_bytes(&bytes)
+                    Ok(IdentityLockboxRef::from_bytes(bytes)
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
                 }
@@ -878,7 +878,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for &'a IdentityLockboxRef {
                     }
                 };
                 let bytes: &Bytes = variant.newtype_variant()?;
-                IdentityLockboxRef::from_bytes(&bytes).map_err(|e| A::Error::custom(e.serde_err()))
+                IdentityLockboxRef::from_bytes(bytes).map_err(|e| A::Error::custom(e.serde_err()))
             }
         }
         deserializer.deserialize_enum(
@@ -932,7 +932,7 @@ impl<'de> Deserialize<'de> for StreamLockbox {
                         .to_owned())
                 } else {
                     let bytes: &Bytes = variant.newtype_variant()?;
-                    Ok(StreamLockboxRef::from_bytes(&bytes)
+                    Ok(StreamLockboxRef::from_bytes(bytes)
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
                 }
@@ -981,7 +981,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for &'a StreamLockboxRef {
                     }
                 };
                 let bytes: &Bytes = variant.newtype_variant()?;
-                StreamLockboxRef::from_bytes(&bytes).map_err(|e| A::Error::custom(e.serde_err()))
+                StreamLockboxRef::from_bytes(bytes).map_err(|e| A::Error::custom(e.serde_err()))
             }
         }
         deserializer.deserialize_enum(
@@ -1035,7 +1035,7 @@ impl<'de> Deserialize<'de> for LockLockbox {
                         .to_owned())
                 } else {
                     let bytes: &Bytes = variant.newtype_variant()?;
-                    Ok(LockLockboxRef::from_bytes(&bytes)
+                    Ok(LockLockboxRef::from_bytes(bytes)
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
                 }
@@ -1084,7 +1084,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for &'a LockLockboxRef {
                     }
                 };
                 let bytes: &Bytes = variant.newtype_variant()?;
-                LockLockboxRef::from_bytes(&bytes).map_err(|e| A::Error::custom(e.serde_err()))
+                LockLockboxRef::from_bytes(bytes).map_err(|e| A::Error::custom(e.serde_err()))
             }
         }
         deserializer.deserialize_enum(
