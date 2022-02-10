@@ -22,7 +22,7 @@
 
 use crate::error::CryptoError;
 
-use std::{convert::TryFrom, fmt};
+use std::{convert::{TryFrom, TryInto}, fmt};
 
 use blake2::{
     digest::{Update, VariableOutput},
@@ -41,6 +41,8 @@ pub const MIN_HASH_VERSION: u8 = 1;
 pub const MAX_HASH_VERSION: u8 = 1;
 
 const V1_DIGEST_SIZE: usize = 32;
+
+const MAX_HASH_LEN: usize = 1 + V1_DIGEST_SIZE;
 
 /// Crytographically secure hash of data.
 ///
@@ -61,7 +63,7 @@ const V1_DIGEST_SIZE: usize = 32;
 /// ```
 #[derive(Clone)]
 pub struct Hash {
-    data: Vec<u8>,
+    data: [u8; MAX_HASH_LEN],
 }
 
 impl Hash {
@@ -120,17 +122,15 @@ impl TryFrom<&[u8]> for Hash {
         }
 
         // Length check
-        if value.len() != 1 + V1_DIGEST_SIZE {
-            return Err(CryptoError::BadLength {
+        let data: [u8; MAX_HASH_LEN] = value.try_into().map_err(|_| {
+            CryptoError::BadLength {
                 step: "get hash digest (with version)",
                 actual: value.len(),
                 expected: 1 + V1_DIGEST_SIZE,
-            });
-        }
+            }
+        })?;
 
-        Ok(Self {
-            data: Vec::from(value),
-        })
+        Ok(Self { data })
     }
 }
 
@@ -264,10 +264,10 @@ impl HashState {
 
     /// Finalize the hasher and produce a hash. Functions like `hash()` but consumes the state.
     pub fn finalize(self) -> Hash {
-        let mut data = Vec::with_capacity(1 + V1_DIGEST_SIZE);
-        data.push(1u8);
+        let mut data = [0u8; MAX_HASH_LEN];
+        data[0] = 1u8;
         self.state
-            .finalize_variable(|res| data.extend_from_slice(res));
+            .finalize_variable(|res| data[1..1+V1_DIGEST_SIZE].copy_from_slice(res));
         Hash { data }
     }
 }
