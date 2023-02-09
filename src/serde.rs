@@ -430,7 +430,7 @@ impl<'de> Visitor<'de> for CryptoEnumVisitor {
             FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX => Ok(CryptoEnum::StreamLockbox),
             FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX => Ok(CryptoEnum::LockLockbox),
             _ => Err(E::invalid_value(
-                serde::de::Unexpected::Unsigned(v as u64),
+                serde::de::Unexpected::Unsigned(v),
                 &"variant index 1 <= i <= 8",
             )),
         }

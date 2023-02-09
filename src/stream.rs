@@ -672,7 +672,7 @@ impl TryFrom<&[u8]> for StreamId {
     /// Value must be the same length as the StreamId was when it was encoded (no trailing bytes
     /// allowed).
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let _version = value.get(0).ok_or(CryptoError::BadLength {
+        let _version = value.first().ok_or(CryptoError::BadLength {
             step: "get stream version",
             actual: 0,
             expected: 1,

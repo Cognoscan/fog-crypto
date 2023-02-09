@@ -42,7 +42,8 @@ pub const MAX_HASH_VERSION: u8 = 1;
 
 const V1_DIGEST_SIZE: usize = 32;
 
-const MAX_HASH_LEN: usize = 1 + V1_DIGEST_SIZE;
+/// Maximum size that a hash could be. This may change when versions increment.
+pub const MAX_HASH_LEN: usize = 1 + V1_DIGEST_SIZE;
 
 /// Crytographically secure hash of data.
 ///
@@ -110,7 +111,7 @@ impl TryFrom<&[u8]> for Hash {
     type Error = CryptoError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let &version = value.get(0).ok_or(CryptoError::BadLength {
+        let &version = value.first().ok_or(CryptoError::BadLength {
             step: "get hash version",
             actual: 0,
             expected: 1,
@@ -358,6 +359,25 @@ mod tests {
         use rand::prelude::*;
         let mut rng = rand::thread_rng();
 
+        // Golden test case
+        let h = Hash::new(b"I am data, about to be hashed.");
+        let b58 = h.to_base58();
+        let expected = "PnQZwqcH74g1gGpsRbPpzpPqTaHU5PELxrwAosE9MWxM";
+        let eq = b58 == expected;
+        if !eq {
+            println!("Base58 actual:   {}", b58);
+            println!("Base58 expected: {}", expected);
+        }
+        assert!(eq);
+        let h2 = Hash::from_base58(&b58).unwrap();
+        let eq = h == h2;
+        if !eq {
+            println!("in:  {}", h);
+            println!("out: {}", h2);
+        }
+        assert!(eq);
+
+        // Random test cases
         for _ in 0..1000 {
             let mut v: Vec<u8> = Vec::with_capacity(32);
             for _ in 0..32 {
