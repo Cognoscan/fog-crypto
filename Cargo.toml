@@ -1,6 +1,6 @@
 [package]
 name = "fog-crypto"
-version = "0.4.2"
+version = "0.4.3"
 authors = ["Scott Teal"]
 readme = "README.md"
 keywords = [ "crypto", "fog-tools"]
@@ -9,7 +9,7 @@ repository = "https://github.com/Cognoscan/fog-crypto"
 documentation = "http://docs.rs/fog-crypto"
 license = "MIT OR Apache-2.0"
 description = "Utilities to make signing & encryption easier for small, independent blocks of bytes. Primary use-case is the fog-pack library."
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -21,8 +21,8 @@ with-serde = ["serde", "serde_bytes", "base64"]
 byteorder = "1"
 subtle = "2.4"
 zeroize = { version = "1", default-features = false, features = ["zeroize_derive"] }
-blake2 = "0.9"
-chacha20poly1305 = { version = "0.7", features = ["xchacha20poly1305"] }
+blake2 = "0.10"
+chacha20poly1305 = "0.10"
 ed25519-dalek = "1"
 x25519-dalek = "1"
 bs58 = "0.4"

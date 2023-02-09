@@ -25,8 +25,9 @@ use crate::error::CryptoError;
 use std::{convert::{TryFrom, TryInto}, fmt};
 
 use blake2::{
-    digest::{Update, VariableOutput},
-    VarBlake2b,
+    Digest,
+    Blake2b,
+    digest::consts::U32,
 };
 
 use subtle::{Choice, ConstantTimeEq};
@@ -41,6 +42,7 @@ pub const MIN_HASH_VERSION: u8 = 1;
 pub const MAX_HASH_VERSION: u8 = 1;
 
 const V1_DIGEST_SIZE: usize = 32;
+type V1Blake = Blake2b<U32>;
 
 /// Maximum size that a hash could be. This may change when versions increment.
 pub const MAX_HASH_LEN: usize = 1 + V1_DIGEST_SIZE;
@@ -227,7 +229,7 @@ impl std::hash::Hash for Hash {
 /// ```
 #[derive(Clone)]
 pub struct HashState {
-    state: VarBlake2b,
+    state: V1Blake,
 }
 
 impl HashState {
@@ -243,8 +245,7 @@ impl HashState {
         if version > MAX_HASH_VERSION || version < MIN_HASH_VERSION {
             return Err(CryptoError::UnsupportedVersion(version));
         }
-        let state =
-            VarBlake2b::new(V1_DIGEST_SIZE).expect("Blake2B didn't support the chosen digest size");
+        let state = V1Blake::new();
         Ok(HashState { state })
     }
 
@@ -267,8 +268,8 @@ impl HashState {
     pub fn finalize(self) -> Hash {
         let mut data = [0u8; MAX_HASH_LEN];
         data[0] = 1u8;
-        self.state
-            .finalize_variable(|res| data[1..1+V1_DIGEST_SIZE].copy_from_slice(res));
+        let hash = self.state.finalize();
+        data[1..].copy_from_slice(&hash);
         Hash { data }
     }
 }

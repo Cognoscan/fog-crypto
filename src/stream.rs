@@ -66,9 +66,10 @@ use zeroize::Zeroize;
 use std::{convert::TryFrom, fmt, sync::Arc};
 
 use blake2::{
-    digest::{Update, VariableOutput},
-    VarBlake2b,
+    Blake2bMac,
+    digest::{consts::U32, Mac, FixedOutput},
 };
+type V1KeyId = Blake2bMac<U32>;
 
 /// Default symmetric-key encryption algorithm version.
 pub const DEFAULT_STREAM_VERSION: u8 = 1;
@@ -307,13 +308,14 @@ pub trait StreamInterface: Sync + Send {
 /// Compute the corresponding StreamId for a given raw key.
 pub fn stream_id_from_key(version: u8, key: &[u8]) -> StreamId {
     assert_eq!(version, 1u8, "StreamKey must have version of 1");
-    let mut hasher = VarBlake2b::with_params(&[], &[], b"fog-crypto", V1_STREAM_ID_SIZE);
+    let mut hasher = V1KeyId::new_with_salt_and_personal(&[], &[], b"fog-crypto-sid").unwrap();
     hasher.update(key);
     let mut id = StreamId {
         inner: Vec::with_capacity(1 + V1_STREAM_ID_SIZE),
     };
     id.inner.push(1u8);
-    hasher.finalize_variable(|hash| id.inner.extend_from_slice(hash));
+    let hash_raw = hasher.finalize_fixed();
+    id.inner.extend_from_slice(&hash_raw[..]);
     id
 }
 
@@ -388,7 +390,7 @@ impl ContainedStreamKey {
             ));
         }
         // Feed the lockbox's parts into the decryption algorithm
-        use chacha20poly1305::aead::{Aead, NewAead};
+        use chacha20poly1305::aead::Aead;
         use chacha20poly1305::*;
         let aead = XChaCha20Poly1305::new(Key::from_slice(&self.key));
         let nonce = XNonce::from_slice(parts.nonce);
@@ -457,8 +459,8 @@ impl StreamInterface for ContainedStreamKey {
             lock_type.is_for_stream(),
             "Tried to encrypt a non-stream-recipient lockbox with a StreamId"
         );
-        use chacha20poly1305::aead::{AeadInPlace, NewAead};
-        use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
+        use chacha20poly1305::aead::AeadInPlace;
+        use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
 
         // Get the data lengths and allocate the vec
         let id = self.id();
@@ -481,7 +483,7 @@ impl StreamInterface for ContainedStreamKey {
         // Setup & execute encryption
         let (additional, nonce_and_content) = lockbox.split_at_mut(header_len);
         let (_, content) = nonce_and_content.split_at_mut(nonce_len);
-        let aead = XChaCha20Poly1305::new(Key::from_slice(&self.key));
+        let aead = XChaCha20Poly1305::new_from_slice(&self.key).unwrap();
         let nonce = XNonce::from(nonce);
 
         // Ok, this unwrap... the only failure condition on encryption is if the content is really

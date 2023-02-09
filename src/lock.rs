@@ -69,6 +69,7 @@ use crate::{
     CryptoError, CryptoSrc,
 };
 
+use chacha20poly1305::KeyInit;
 use rand_core::{CryptoRng, RngCore};
 
 use zeroize::Zeroize;
@@ -446,8 +447,7 @@ pub fn lock_id_encrypt(
         !lock_type.is_for_stream(),
         "Tried to encrypt a non-lock-recipient lockbox with a LockId"
     );
-    use chacha20poly1305::aead::{AeadInPlace, NewAead};
-    use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
+    use chacha20poly1305::{ AeadInPlace, XChaCha20Poly1305, XNonce };
 
     // Generate the ephemeral key and the nonce
     let mut nonce = [0u8; crate::lockbox::V1_LOCKBOX_NONCE_SIZE];
@@ -475,7 +475,7 @@ pub fn lock_id_encrypt(
     let (additional, nonce_and_content) = lockbox.split_at_mut(header_len);
     let (_, content) = nonce_and_content.split_at_mut(nonce_len);
     let secret = eph.diffie_hellman(&id.inner);
-    let aead = XChaCha20Poly1305::new(Key::from_slice(secret.as_bytes()));
+    let aead = XChaCha20Poly1305::new_from_slice(secret.as_bytes()).unwrap();
     let nonce = XNonce::from(nonce);
 
     // We unwrap here because the only failure condition on encryption is if the content is really
@@ -573,7 +573,7 @@ impl ContainedLockKey {
         let secret = self.key.diffie_hellman(&eph_pub);
 
         // Feed the lockbox's parts into the decryption algorithm
-        use chacha20poly1305::aead::{Aead, NewAead};
+        use chacha20poly1305::aead::Aead;
         use chacha20poly1305::*;
         let aead = XChaCha20Poly1305::new(Key::from_slice(secret.as_bytes()));
         let nonce = XNonce::from_slice(parts.nonce);
