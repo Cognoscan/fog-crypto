@@ -380,7 +380,7 @@ impl Serialize for LockLockboxRef {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[doc(hidden)]
-/// Used for deserialization of the type identifier. Made public only so it can be used by 
+/// Used for deserialization of the type identifier. Made public only so it can be used by
 /// fog-pack.
 pub enum CryptoEnum {
     Time,
@@ -1247,7 +1247,7 @@ mod test {
         println!("Bincode: {:x?}", bin);
         // Decode & check
         let dec: &DataLockboxRef = bincode::deserialize(&bin).unwrap();
-        let dec = key.decrypt_data(&dec).unwrap();
+        let dec = key.decrypt_data(dec).unwrap();
         assert_eq!(dec, to_send);
     }
 
@@ -1314,7 +1314,7 @@ mod test {
         println!("Bincode: {:x?}", bin);
         // Decode & check
         let dec: &IdentityLockboxRef = bincode::deserialize(&bin).unwrap();
-        let dec = key.decrypt_identity_key(&dec).unwrap();
+        let dec = key.decrypt_identity_key(dec).unwrap();
         assert_eq!(dec.id(), to_send.id());
     }
 
@@ -1381,7 +1381,7 @@ mod test {
         println!("Bincode: {:x?}", bin);
         // Decode & check
         let dec: &StreamLockboxRef = bincode::deserialize(&bin).unwrap();
-        let dec = key.decrypt_stream_key(&dec).unwrap();
+        let dec = key.decrypt_stream_key(dec).unwrap();
         assert_eq!(dec.id(), to_send.id());
     }
 
@@ -1448,7 +1448,7 @@ mod test {
         println!("Bincode: {:x?}", bin);
         // Decode & check
         let dec: &LockLockboxRef = bincode::deserialize(&bin).unwrap();
-        let dec = key.decrypt_lock_key(&dec).unwrap();
+        let dec = key.decrypt_lock_key(dec).unwrap();
         assert_eq!(dec.id(), to_send.id());
     }
 }

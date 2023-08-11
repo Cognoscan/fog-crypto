@@ -1069,7 +1069,7 @@ mod tests {
                 if LockboxRecipient::StreamId(key.id().clone()) != dec_lockbox.recipient() {
                     return false;
                 }
-                if let Ok(dec) = key.decrypt_identity_key(&dec_lockbox) {
+                if let Ok(dec) = key.decrypt_identity_key(dec_lockbox) {
                     dec.id() == to_send.id()
                 } else {
                     false
@@ -1155,7 +1155,7 @@ mod tests {
                 &key,
                 &mut csprng,
                 crate::lockbox::LockboxType::Identity(true),
-                &content[..],
+                content,
             ));
             let enc = Vec::from(lockbox.as_bytes());
             let lockbox = if let Ok(l) = IdentityLockboxRef::from_bytes(&enc[..]) {
@@ -1163,7 +1163,7 @@ mod tests {
             } else {
                 return false;
             };
-            if let Ok(dec) = key.decrypt_identity_key(&lockbox) {
+            if let Ok(dec) = key.decrypt_identity_key(lockbox) {
                 dec.id() == to_send.id()
             } else {
                 false
@@ -1218,7 +1218,7 @@ mod tests {
                 if LockboxRecipient::StreamId(key.id().clone()) != dec_lockbox.recipient() {
                     return false;
                 }
-                if let Ok(dec) = key.decrypt_stream_key(&dec_lockbox) {
+                if let Ok(dec) = key.decrypt_stream_key(dec_lockbox) {
                     dec.id() == to_send.id()
                 } else {
                     false
@@ -1303,7 +1303,7 @@ mod tests {
                 &key,
                 &mut csprng,
                 crate::lockbox::LockboxType::Stream(true),
-                &content[..],
+                content,
             ));
             let enc = Vec::from(lockbox.as_bytes());
             let lockbox = if let Ok(l) = StreamLockboxRef::from_bytes(&enc[..]) {
@@ -1311,7 +1311,7 @@ mod tests {
             } else {
                 return false;
             };
-            if let Ok(dec) = key.decrypt_stream_key(&lockbox) {
+            if let Ok(dec) = key.decrypt_stream_key(lockbox) {
                 dec.id() == to_send.id()
             } else {
                 false
@@ -1366,7 +1366,7 @@ mod tests {
                 if LockboxRecipient::StreamId(key.id().clone()) != dec_lockbox.recipient() {
                     return false;
                 }
-                if let Ok(dec) = key.decrypt_lock_key(&dec_lockbox) {
+                if let Ok(dec) = key.decrypt_lock_key(dec_lockbox) {
                     dec.id() == to_send.id()
                 } else {
                     false
@@ -1452,7 +1452,7 @@ mod tests {
                 &key,
                 &mut csprng,
                 crate::lockbox::LockboxType::Lock(true),
-                &content[..],
+                content,
             ));
             let enc = Vec::from(lockbox.as_bytes());
             let lockbox = if let Ok(l) = LockLockboxRef::from_bytes(&enc[..]) {
@@ -1460,7 +1460,7 @@ mod tests {
             } else {
                 return false;
             };
-            if let Ok(dec) = key.decrypt_lock_key(&lockbox) {
+            if let Ok(dec) = key.decrypt_lock_key(lockbox) {
                 dec.id() == to_send.id()
             } else {
                 false

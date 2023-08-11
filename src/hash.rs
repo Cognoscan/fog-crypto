@@ -302,8 +302,8 @@ mod tests {
         let json_ref: Value = serde_json::from_reader(file_ref).unwrap();
 
         for vector in json_ref.as_array().unwrap().iter() {
-            let ref_hash = hex::decode(&vector["out"].as_str().unwrap()).unwrap();
-            let ref_input = hex::decode(&vector["input"].as_str().unwrap()).unwrap();
+            let ref_hash = hex::decode(vector["out"].as_str().unwrap()).unwrap();
+            let ref_input = hex::decode(vector["input"].as_str().unwrap()).unwrap();
             let h = Hash::new(&ref_input[..]);
             let mut state: HashState = HashState::new();
             state.update(&ref_input[..]);
@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn edge_cases() {
-        match Hash::with_version(&[1, 2], 0).unwrap_err() {
+        match Hash::with_version([1, 2], 0).unwrap_err() {
             CryptoError::UnsupportedVersion(v) => {
                 assert_eq!(v, 0, "UnsupportedVersion should have been 0");
             }
@@ -350,7 +350,7 @@ mod tests {
         let digest =
             hex::decode("8b57a796a5d07cb04cc1614dfc2acb3f73edc712d7f433619ca3bbe66bb15f49")
                 .unwrap();
-        let h = Hash::new(&hex::decode("00010203040506070809").unwrap());
+        let h = Hash::new(hex::decode("00010203040506070809").unwrap());
         assert_eq!(h.version(), 1);
         assert_eq!(h.digest(), &digest[..]);
     }
