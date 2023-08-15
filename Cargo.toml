@@ -1,6 +1,6 @@
 [package]
 name = "fog-crypto"
-version = "0.4.3"
+version = "0.5.0"
 authors = ["Scott Teal"]
 readme = "README.md"
 keywords = [ "crypto", "fog-tools"]
@@ -8,7 +8,7 @@ categories = [ "cryptography" ]
 repository = "https://github.com/Cognoscan/fog-crypto"
 documentation = "http://docs.rs/fog-crypto"
 license = "MIT OR Apache-2.0"
-description = "Utilities to make signing & encryption easier for small, independent blocks of bytes. Primary use-case is the fog-pack library."
+description = "Utilities to make signing & encryption easier for small, independent blocks of bytes. Primary use-case is the fog-pack crate."
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
