@@ -34,6 +34,8 @@ pub const FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME: &str = "IdentityLockbox";
 pub const FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME: &str = "StreamLockbox";
 /// Enum variant name for [`LockLockbox`](crate::lockbox::LockLockbox)
 pub const FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME: &str = "LockLockbox";
+/// Enum variant name for [`BareIdKey`](crate::identity::BareIdKey)
+pub const FOG_TYPE_ENUM_BARE_ID_KEY_NAME: &str = "BareIdKey";
 
 /// Enum variant index for `Time` Timestamp (used by fog-pack)
 pub const FOG_TYPE_ENUM_TIME_INDEX: u64 = 0;
@@ -53,6 +55,8 @@ pub const FOG_TYPE_ENUM_IDENTITY_LOCKBOX_INDEX: u64 = 6;
 pub const FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX: u64 = 7;
 /// Enum variant index for [`LockLockbox`](crate::lockbox::LockLockbox)
 pub const FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX: u64 = 8;
+/// Enum variant name for [`BareIdKey`](crate::identity::BareIdKey)
+pub const FOG_TYPE_ENUM_BARE_ID_KEY_INDEX: u64 = 9;
 
 const VARIANTS: &[&str] = &[
     FOG_TYPE_ENUM,
@@ -64,9 +68,10 @@ const VARIANTS: &[&str] = &[
     FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME,
     FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME,
     FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME,
+    FOG_TYPE_ENUM_BARE_ID_KEY_NAME,
 ];
 
-use crate::{hash::Hash, identity::Identity, lock::LockId, lockbox::*, stream::StreamId};
+use crate::{hash::Hash, identity::{Identity, BareIdKey}, lock::LockId, lockbox::*, stream::StreamId};
 
 use serde::{
     de::{Deserialize, Deserializer, EnumAccess, Error, Unexpected, VariantAccess, Visitor},
@@ -74,6 +79,10 @@ use serde::{
 };
 use serde_bytes::{ByteBuf, Bytes};
 use std::{convert::TryFrom, fmt};
+use base64::{
+    engine::general_purpose::STANDARD,
+    Engine,
+};
 
 impl Serialize for Hash {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -119,6 +128,32 @@ impl Serialize for Identity {
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_IDENTITY_INDEX as u32,
                 FOG_TYPE_ENUM_IDENTITY_NAME,
+                &value,
+            )
+        }
+    }
+}
+
+impl Serialize for BareIdKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            let value = self.to_base58();
+            serializer.serialize_newtype_variant(
+                FOG_TYPE_ENUM,
+                FOG_TYPE_ENUM_BARE_ID_KEY_INDEX as u32,
+                FOG_TYPE_ENUM_BARE_ID_KEY_NAME,
+                &value,
+            )
+        } else {
+            let mut value = ByteBuf::new();
+            self.encode_vec(&mut value);
+            serializer.serialize_newtype_variant(
+                FOG_TYPE_ENUM,
+                FOG_TYPE_ENUM_BARE_ID_KEY_INDEX as u32,
+                FOG_TYPE_ENUM_BARE_ID_KEY_NAME,
                 &value,
             )
         }
@@ -181,7 +216,7 @@ impl Serialize for DataLockbox {
         S: Serializer,
     {
         if serializer.is_human_readable() {
-            let value = base64::encode(self.as_bytes());
+            let value = STANDARD.encode(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_DATA_LOCKBOX_INDEX as u32,
@@ -206,7 +241,7 @@ impl Serialize for DataLockboxRef {
         S: Serializer,
     {
         if serializer.is_human_readable() {
-            let value = base64::encode(self.as_bytes());
+            let value = STANDARD.encode(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_DATA_LOCKBOX_INDEX as u32,
@@ -231,7 +266,7 @@ impl Serialize for IdentityLockbox {
         S: Serializer,
     {
         if serializer.is_human_readable() {
-            let value = base64::encode(self.as_bytes());
+            let value = STANDARD.encode(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_IDENTITY_LOCKBOX_INDEX as u32,
@@ -256,7 +291,7 @@ impl Serialize for IdentityLockboxRef {
         S: Serializer,
     {
         if serializer.is_human_readable() {
-            let value = base64::encode(self.as_bytes());
+            let value = STANDARD.encode(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_IDENTITY_LOCKBOX_INDEX as u32,
@@ -281,7 +316,7 @@ impl Serialize for StreamLockbox {
         S: Serializer,
     {
         if serializer.is_human_readable() {
-            let value = base64::encode(self.as_bytes());
+            let value = STANDARD.encode(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX as u32,
@@ -306,7 +341,7 @@ impl Serialize for StreamLockboxRef {
         S: Serializer,
     {
         if serializer.is_human_readable() {
-            let value = base64::encode(self.as_bytes());
+            let value = STANDARD.encode(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX as u32,
@@ -331,7 +366,7 @@ impl Serialize for LockLockbox {
         S: Serializer,
     {
         if serializer.is_human_readable() {
-            let value = base64::encode(self.as_bytes());
+            let value = STANDARD.encode(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX as u32,
@@ -356,7 +391,7 @@ impl Serialize for LockLockboxRef {
         S: Serializer,
     {
         if serializer.is_human_readable() {
-            let value = base64::encode(self.as_bytes());
+            let value = STANDARD.encode(self.as_bytes());
             serializer.serialize_newtype_variant(
                 FOG_TYPE_ENUM,
                 FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX as u32,
@@ -392,6 +427,7 @@ pub enum CryptoEnum {
     IdentityLockbox,
     StreamLockbox,
     LockLockbox,
+    BareIdKey,
 }
 
 impl CryptoEnum {
@@ -407,6 +443,7 @@ impl CryptoEnum {
             IdentityLockbox => "IdentityLockbox",
             StreamLockbox => "StreamLockbox",
             LockLockbox => "LockLockbox",
+            BareIdKey => "BareIdKey",
         }
     }
 }
@@ -429,6 +466,7 @@ impl<'de> Visitor<'de> for CryptoEnumVisitor {
             FOG_TYPE_ENUM_IDENTITY_LOCKBOX_INDEX => Ok(CryptoEnum::IdentityLockbox),
             FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX => Ok(CryptoEnum::StreamLockbox),
             FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX => Ok(CryptoEnum::LockLockbox),
+            FOG_TYPE_ENUM_BARE_ID_KEY_INDEX => Ok(CryptoEnum::BareIdKey),
             _ => Err(E::invalid_value(
                 serde::de::Unexpected::Unsigned(v),
                 &"variant index 1 <= i <= 8",
@@ -447,6 +485,7 @@ impl<'de> Visitor<'de> for CryptoEnumVisitor {
             FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME => Ok(CryptoEnum::IdentityLockbox),
             FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME => Ok(CryptoEnum::StreamLockbox),
             FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME => Ok(CryptoEnum::LockLockbox),
+            FOG_TYPE_ENUM_BARE_ID_KEY_NAME => Ok(CryptoEnum::BareIdKey),
             _ => Err(E::unknown_variant(v, VARIANTS)),
         }
     }
@@ -466,6 +505,7 @@ impl<'de> Visitor<'de> for CryptoEnumVisitor {
             FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME => Ok(CryptoEnum::IdentityLockbox),
             FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME => Ok(CryptoEnum::StreamLockbox),
             FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME => Ok(CryptoEnum::LockLockbox),
+            FOG_TYPE_ENUM_BARE_ID_KEY_NAME => Ok(CryptoEnum::BareIdKey),
             _ => Err(E::unknown_variant(v, VARIANTS)),
         }
     }
@@ -577,6 +617,57 @@ impl<'de> Deserialize<'de> for Identity {
             FOG_TYPE_ENUM,
             &[FOG_TYPE_ENUM_IDENTITY_NAME],
             IdentityVisitor { is_human_readable },
+        )
+    }
+}
+
+impl<'de> Deserialize<'de> for BareIdKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct BareIdVisitor {
+            is_human_readable: bool,
+        }
+
+        impl<'de> serde::de::Visitor<'de> for BareIdVisitor {
+            type Value = BareIdKey;
+
+            fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+                write!(
+                    fmt,
+                    "{} enum with variant {} (id {})",
+                    FOG_TYPE_ENUM, FOG_TYPE_ENUM_BARE_ID_KEY_NAME, FOG_TYPE_ENUM_BARE_ID_KEY_INDEX
+                )
+            }
+
+            fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
+            where
+                A: EnumAccess<'de>,
+            {
+                let variant = match data.variant()? {
+                    (CryptoEnum::BareIdKey, variant) => variant,
+                    (e, _) => {
+                        return Err(A::Error::invalid_type(
+                            Unexpected::Other(e.as_str()),
+                            &"BareIdKey",
+                        ))
+                    }
+                };
+                if self.is_human_readable {
+                    let base58: String = variant.newtype_variant()?;
+                    BareIdKey::from_base58(&base58).map_err(|e| A::Error::custom(e.serde_err()))
+                } else {
+                    let bytes: ByteBuf = variant.newtype_variant()?;
+                    BareIdKey::try_from(bytes.as_ref()).map_err(|e| A::Error::custom(e.serde_err()))
+                }
+            }
+        }
+        let is_human_readable = deserializer.is_human_readable();
+        deserializer.deserialize_enum(
+            FOG_TYPE_ENUM,
+            &[FOG_TYPE_ENUM_BARE_ID_KEY_NAME],
+            BareIdVisitor { is_human_readable },
         )
     }
 }
@@ -720,7 +811,7 @@ impl<'de> Deserialize<'de> for DataLockbox {
                 };
                 if self.is_human_readable {
                     let v: String = variant.newtype_variant()?;
-                    let bytes = base64::decode(v).map_err(|_| A::Error::custom(""))?;
+                    let bytes = STANDARD.decode(v).map_err(|_| A::Error::custom(""))?;
                     Ok(DataLockboxRef::from_bytes(&bytes[..])
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
@@ -823,7 +914,7 @@ impl<'de> Deserialize<'de> for IdentityLockbox {
                 };
                 if self.is_human_readable {
                     let v: String = variant.newtype_variant()?;
-                    let bytes = base64::decode(v).map_err(|_| A::Error::custom(""))?;
+                    let bytes = STANDARD.decode(v).map_err(|_| A::Error::custom(""))?;
                     Ok(IdentityLockboxRef::from_bytes(&bytes[..])
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
@@ -926,7 +1017,7 @@ impl<'de> Deserialize<'de> for StreamLockbox {
                 };
                 if self.is_human_readable {
                     let v: String = variant.newtype_variant()?;
-                    let bytes = base64::decode(v).map_err(|_| A::Error::custom(""))?;
+                    let bytes = STANDARD.decode(v).map_err(|_| A::Error::custom(""))?;
                     Ok(StreamLockboxRef::from_bytes(&bytes[..])
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
@@ -1029,7 +1120,7 @@ impl<'de> Deserialize<'de> for LockLockbox {
                 };
                 if self.is_human_readable {
                     let v: String = variant.newtype_variant()?;
-                    let bytes = base64::decode(v).map_err(|_| A::Error::custom(""))?;
+                    let bytes = STANDARD.decode(v).map_err(|_| A::Error::custom(""))?;
                     Ok(LockLockboxRef::from_bytes(&bytes[..])
                         .map_err(|e| A::Error::custom(e.serde_err()))?
                         .to_owned())
@@ -1123,8 +1214,7 @@ mod test {
 
     #[test]
     fn serde_json_identity() {
-        let mut csprng = rand::rngs::OsRng {};
-        let id = crate::IdentityKey::new_temp(&mut csprng).id().clone();
+        let id = crate::IdentityKey::new().id().clone();
         let json = serde_json::to_string(&id).unwrap();
         println!("{}", json);
         let dec: Identity = serde_json::from_str(&json).unwrap();
@@ -1133,8 +1223,7 @@ mod test {
 
     #[test]
     fn bincode_identity() {
-        let mut csprng = rand::rngs::OsRng {};
-        let id = crate::IdentityKey::new_temp(&mut csprng).id().clone();
+        let id = crate::IdentityKey::new().id().clone();
         let bin = bincode::serialize(&id).unwrap();
         println!("Original Id: {:x?}", id);
         println!("Bincode: {:x?}", bin);
@@ -1144,8 +1233,7 @@ mod test {
 
     #[test]
     fn serde_json_stream_id() {
-        let mut csprng = rand::rngs::OsRng {};
-        let id = crate::StreamKey::new_temp(&mut csprng).id().clone();
+        let id = crate::StreamKey::new().id().clone();
         let json = serde_json::to_string(&id).unwrap();
         println!("{}", json);
         let dec: StreamId = serde_json::from_str(&json).unwrap();
@@ -1154,8 +1242,7 @@ mod test {
 
     #[test]
     fn bincode_stream_id() {
-        let mut csprng = rand::rngs::OsRng {};
-        let id = crate::StreamKey::new_temp(&mut csprng).id().clone();
+        let id = crate::StreamKey::new().id().clone();
         let bin = bincode::serialize(&id).unwrap();
         println!("Original Id: {:x?}", id);
         println!("Bincode: {:x?}", bin);
@@ -1165,8 +1252,7 @@ mod test {
 
     #[test]
     fn serde_json_lock_id() {
-        let mut csprng = rand::rngs::OsRng {};
-        let id = crate::LockKey::new_temp(&mut csprng).id().clone();
+        let id = crate::LockKey::new().id().clone();
         let json = serde_json::to_string(&id).unwrap();
         println!("{}", json);
         let dec: LockId = serde_json::from_str(&json).unwrap();
@@ -1175,8 +1261,7 @@ mod test {
 
     #[test]
     fn bincode_lock_id() {
-        let mut csprng = rand::rngs::OsRng {};
-        let id = crate::LockKey::new_temp(&mut csprng).id().clone();
+        let id = crate::LockKey::new().id().clone();
         let bin = bincode::serialize(&id).unwrap();
         println!("Original Id: {:x?}", id);
         println!("Bincode: {:x?}", bin);
@@ -1187,7 +1272,7 @@ mod test {
     #[test]
     fn serde_json_data_lockbox() {
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
         let to_send = b"Crypto in JSON, eh?";
         let lockbox = key.encrypt_data(&mut csprng, to_send);
 
@@ -1205,7 +1290,7 @@ mod test {
         // Set up crypto
         use std::ops::Deref;
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
         let to_send = b"Crypto in JSON, eh?";
         let lockbox = key.encrypt_data(&mut csprng, to_send);
         // Encode & check
@@ -1219,7 +1304,7 @@ mod test {
     fn bincode_data_lockbox() {
         // Set up crypto
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
         let to_send = b"Crypto in bincode, eh?";
         let lockbox = key.encrypt_data(&mut csprng, to_send);
         // Encode
@@ -1237,7 +1322,7 @@ mod test {
         // Set up crypto
         use std::ops::Deref;
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
         let to_send = b"Crypto in bincode, eh?";
         let lockbox = key.encrypt_data(&mut csprng, to_send);
         // Encode
@@ -1254,8 +1339,8 @@ mod test {
     #[test]
     fn serde_json_identity_lockbox() {
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
-        let to_send = crate::IdentityKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
+        let to_send = crate::IdentityKey::with_rng(&mut csprng);
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
 
         let json = serde_json::to_string(&lockbox).unwrap();
@@ -1272,8 +1357,8 @@ mod test {
         // Set up crypto
         use std::ops::Deref;
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
-        let to_send = crate::IdentityKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
+        let to_send = crate::IdentityKey::with_rng(&mut csprng);
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
         // Encode & check
         let json1 = serde_json::to_string(&lockbox).unwrap();
@@ -1286,8 +1371,8 @@ mod test {
     fn bincode_identity_lockbox() {
         // Set up crypto
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
-        let to_send = crate::IdentityKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
+        let to_send = crate::IdentityKey::with_rng(&mut csprng);
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
         // Encode
         let bin = bincode::serialize(&lockbox).unwrap();
@@ -1304,8 +1389,8 @@ mod test {
         // Set up crypto
         use std::ops::Deref;
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
-        let to_send = crate::IdentityKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
+        let to_send = crate::IdentityKey::with_rng(&mut csprng);
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
         // Encode
         let lockbox_ref: &IdentityLockboxRef = lockbox.deref();
@@ -1321,8 +1406,8 @@ mod test {
     #[test]
     fn serde_json_stream_lockbox() {
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
-        let to_send = crate::StreamKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
+        let to_send = crate::StreamKey::with_rng(&mut csprng);
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
 
         let json = serde_json::to_string(&lockbox).unwrap();
@@ -1339,8 +1424,8 @@ mod test {
         // Set up crypto
         use std::ops::Deref;
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
-        let to_send = crate::StreamKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
+        let to_send = crate::StreamKey::with_rng(&mut csprng);
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
         // Encode & check
         let json1 = serde_json::to_string(&lockbox).unwrap();
@@ -1353,8 +1438,8 @@ mod test {
     fn bincode_stream_lockbox() {
         // Set up crypto
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
-        let to_send = crate::StreamKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
+        let to_send = crate::StreamKey::with_rng(&mut csprng);
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
         // Encode
         let bin = bincode::serialize(&lockbox).unwrap();
@@ -1371,8 +1456,8 @@ mod test {
         // Set up crypto
         use std::ops::Deref;
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
-        let to_send = crate::StreamKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
+        let to_send = crate::StreamKey::with_rng(&mut csprng);
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
         // Encode
         let lockbox_ref: &StreamLockboxRef = lockbox.deref();
@@ -1388,8 +1473,8 @@ mod test {
     #[test]
     fn serde_json_lock_lockbox() {
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
-        let to_send = crate::LockKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
+        let to_send = crate::LockKey::with_rng(&mut csprng);
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
 
         let json = serde_json::to_string(&lockbox).unwrap();
@@ -1406,8 +1491,8 @@ mod test {
         // Set up crypto
         use std::ops::Deref;
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
-        let to_send = crate::LockKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
+        let to_send = crate::LockKey::with_rng(&mut csprng);
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
         // Encode & check
         let json1 = serde_json::to_string(&lockbox).unwrap();
@@ -1420,8 +1505,8 @@ mod test {
     fn bincode_lock_lockbox() {
         // Set up crypto
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
-        let to_send = crate::LockKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
+        let to_send = crate::LockKey::with_rng(&mut csprng);
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
         // Encode
         let bin = bincode::serialize(&lockbox).unwrap();
@@ -1438,8 +1523,8 @@ mod test {
         // Set up crypto
         use std::ops::Deref;
         let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::new_temp(&mut csprng);
-        let to_send = crate::LockKey::new_temp(&mut csprng);
+        let key = crate::StreamKey::with_rng(&mut csprng);
+        let to_send = crate::LockKey::with_rng(&mut csprng);
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
         // Encode
         let lockbox_ref: &LockLockboxRef = lockbox.deref();

@@ -18,8 +18,7 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! // Make a new temporary key
-//! let mut csprng = rand::rngs::OsRng {};
-//! let key = IdentityKey::new_temp(&mut csprng);
+//! let key = IdentityKey::new();
 //!
 //! println!("Identity(Base58): {}", key.id());
 //!
@@ -51,7 +50,7 @@
 //! verification][StrictVerification]. The private key is handled by an [`IdentityKey`], while the
 //! public key is available as an [`Identity`].
 //!
-//! [StrictVerification]: https://docs.rs/ed25519-dalek/1.0.1/ed25519_dalek/struct.PublicKey.html#method.verify_strict
+//! [StrictVerification]: https://docs.rs/ed25519-dalek/2.0.0/ed25519_dalek/struct.VerifyingKey.html#method.verify_strict
 //!
 //! # Format
 //!
@@ -121,8 +120,7 @@ const V1_IDENTITY_SIGN_SIZE: usize = ed25519_dalek::SIGNATURE_LENGTH;
 /// # use std::convert::TryFrom;
 ///
 /// // Make a new temporary key
-/// let mut csprng = rand::rngs::OsRng {};
-/// let key = IdentityKey::new_temp(&mut csprng);
+/// let key = IdentityKey::new();
 ///
 /// // Sign some data with it
 /// let hash = Hash::new(b"I am data, about to be signed");
@@ -138,24 +136,45 @@ pub struct IdentityKey {
     interface: Arc<dyn SignInterface>,
 }
 
+#[cfg(feature = "getrandom")]
+impl Default for IdentityKey {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IdentityKey {
+
+    /// Create a new `IdentityKey`, given a wrapped object that can implement a
+    /// SignInterface.
+    pub fn from_interface(interface: Arc<dyn SignInterface>) -> IdentityKey {
+    IdentityKey { interface } }
+
     /// Generate a temporary `IdentityKey` that exists in program memory.
-    pub fn new_temp<R>(csprng: &mut R) -> IdentityKey
+    #[cfg(feature = "getrandom")]
+    pub fn new() -> IdentityKey {
+        let interface = Arc::new(BareIdKey::new());
+        Self::from_interface(interface)
+    }
+
+    /// Generate a temporary `IdentityKey` that exists in program memory, using
+    /// the provided cryptographic RNG.
+    pub fn with_rng<R>(csprng: &mut R) -> IdentityKey
     where
         R: rand_core::CryptoRng + rand_core::RngCore,
     {
-        let interface = Arc::new(ContainedIdKey::generate(csprng));
-        new_identity_key(interface)
+        let interface = Arc::new(BareIdKey::with_rng(csprng));
+        Self::from_interface(interface)
     }
 
     /// Generate a temporary `IdentityKey` that exists in program memory. Uses the specified
     /// version instead of the default, and fails if the version is unsupported.
-    pub fn new_temp_with_version<R>(csprng: &mut R, version: u8) -> Result<IdentityKey, CryptoError>
+    pub fn with_rng_and_version<R>(csprng: &mut R, version: u8) -> Result<IdentityKey, CryptoError>
     where
         R: rand_core::CryptoRng + rand_core::RngCore,
     {
-        let interface = Arc::new(ContainedIdKey::with_version(csprng, version)?);
-        Ok(new_identity_key(interface))
+        let interface = Arc::new(BareIdKey::with_rng_and_version(csprng, version)?);
+        Ok(Self::from_interface(interface))
     }
 
     /// Get the signature algorithm version used by this key.
@@ -216,18 +235,12 @@ impl fmt::Debug for IdentityKey {
     }
 }
 
-/// Create a new `IdentityKey`, given an `Identity` and something implementing the signature
-/// interface. This should only be used by implementors of the `Vault` trait, not by any end users.
-pub fn new_identity_key(interface: Arc<dyn SignInterface>) -> IdentityKey {
-    IdentityKey { interface }
-}
-
 /// An Identity, wrapping a public signing key.
 ///
 /// This is useful as an identifier of who has created a given signature.
 #[derive(Clone)]
 pub struct Identity {
-    id: ed25519_dalek::PublicKey,
+    id: ed25519_dalek::VerifyingKey,
 }
 
 impl Identity {
@@ -291,14 +304,14 @@ impl TryFrom<&[u8]> for Identity {
         if version != 1u8 {
             return Err(CryptoError::UnsupportedVersion(version));
         }
-        if data.len() != V1_IDENTITY_ID_SIZE {
+        let Some(data) = data.try_into().ok() else {
             return Err(CryptoError::BadLength {
                 step: "get Identity public key",
                 expected: V1_IDENTITY_ID_SIZE,
                 actual: data.len(),
             });
-        }
-        let id = ed25519_dalek::PublicKey::from_bytes(data).or(Err(CryptoError::BadKey))?;
+        };
+        let id = ed25519_dalek::VerifyingKey::from_bytes(data).or(Err(CryptoError::BadKey))?;
         Ok(Identity { id })
     }
 }
@@ -387,23 +400,41 @@ pub trait SignInterface {
 
 /// A self-contained implementor of `SignInterface`. It's expected this will be used unless the key
 /// is being managed by the OS or a hardware module.
-pub struct ContainedIdKey {
-    id: Identity,
-    inner: ed25519_dalek::Keypair,
+///
+/// In general, you *do not* want to use this directly - [`IdentityKey`] is
+/// strongly preferred. This exists only so raw signing keys can be passed out
+/// without having a target [`LockKey`][crate::lock::LockKey] or [`StreamKey`] -
+/// a specialized requirement needed to implement things like invite tokens.
+pub struct BareIdKey { id: Identity, inner: ed25519_dalek::SigningKey, }
+
+#[cfg(feature = "getrandom")]
+impl Default for BareIdKey {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-impl ContainedIdKey {
+impl BareIdKey {
+
+    /// Generate a new self-contained Identity key.
+    #[cfg(feature = "getrandom")]
+    pub fn new() -> Self {
+        let inner = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
+        let id = Identity { id: inner.verifying_key() };
+        Self { id, inner }
+    }
+
     /// Generate a new key given a cryptographic random number generator.
-    pub fn generate<R>(csprng: &mut R) -> Self
+    pub fn with_rng<R>(csprng: &mut R) -> Self
     where
         R: rand_core::CryptoRng + rand_core::RngCore,
     {
-        Self::with_version(csprng, DEFAULT_SIGN_VERSION).unwrap()
+        Self::with_rng_and_version(csprng, DEFAULT_SIGN_VERSION).unwrap()
     }
 
     /// Generate a new key with a specific version, given a cryptographic random number generator.
     /// Fails if the version isn't supported.
-    pub fn with_version<R>(csprng: &mut R, version: u8) -> Result<Self, CryptoError>
+    pub fn with_rng_and_version<R>(csprng: &mut R, version: u8) -> Result<Self, CryptoError>
     where
         R: rand_core::CryptoRng + rand_core::RngCore,
     {
@@ -411,10 +442,25 @@ impl ContainedIdKey {
             return Err(CryptoError::UnsupportedVersion(version));
         }
 
-        let inner = ed25519_dalek::Keypair::generate(csprng);
-        let id = Identity { id: inner.public };
+        let inner = ed25519_dalek::SigningKey::generate(csprng);
+        let id = Identity { id: inner.verifying_key() };
 
         Ok(Self { id, inner })
+    }
+
+    /// Attempt to parse a base58-encoded BareIdKey.
+    pub fn from_base58(s: &str) -> Result<Self, CryptoError> {
+        let raw = bs58::decode(s)
+            .into_vec()
+            .or(Err(CryptoError::BadFormat("Not valid Base58")))?;
+        Self::try_from(&raw[..])
+    }
+
+    /// Convert into a base58-encoded BareIdKey.
+    pub fn to_base58(&self) -> String {
+        let mut buf = Vec::new();
+        self.encode_vec(&mut buf);
+        bs58::encode(&buf).into_string()
     }
 
     /// Encode the raw key, prepended with the version byte. The output vector must be either
@@ -422,11 +468,11 @@ impl ContainedIdKey {
     pub fn encode_vec(&self, buf: &mut Vec<u8>) {
         buf.reserve(1 + ed25519_dalek::SECRET_KEY_LENGTH);
         buf.push(1u8);
-        buf.extend_from_slice(self.inner.secret.as_bytes())
+        buf.extend_from_slice(&self.inner.to_bytes())
     }
 }
 
-impl TryFrom<&[u8]> for ContainedIdKey {
+impl TryFrom<&[u8]> for BareIdKey {
     type Error = CryptoError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
@@ -451,20 +497,19 @@ impl TryFrom<&[u8]> for ContainedIdKey {
             });
         }
 
-        let secret = ed25519_dalek::SecretKey::from_bytes(key).map_err(|_| CryptoError::BadKey)?;
+        let secret_key = ed25519_dalek::SecretKey::try_from(key).map_err(|_| CryptoError::BadKey)?;
 
-        let public = ed25519_dalek::PublicKey::from(&secret);
-
-        let inner = ed25519_dalek::Keypair { secret, public };
+        let inner = ed25519_dalek::SigningKey::from_bytes(&secret_key);
+        let id = inner.verifying_key();
 
         Ok(Self {
             inner,
-            id: Identity { id: public },
+            id: Identity { id },
         })
     }
 }
 
-impl SignInterface for ContainedIdKey {
+impl SignInterface for BareIdKey {
     fn sign(&self, hash: &Hash) -> Signature {
         let inner = self.inner.sign(hash.digest());
 
@@ -550,10 +595,10 @@ impl Signature {
     /// Encode the signature onto a `Vec<u8>`. Adds the hash version, signing identity, and
     /// signature bytes.
     pub fn encode_vec(&self, buf: &mut Vec<u8>) {
-        let signature = self.inner.as_ref();
+        let signature = self.inner.to_bytes();
         buf.push(self.hash_version);
         self.id.encode_vec(buf);
-        buf.extend_from_slice(signature);
+        buf.extend_from_slice(&signature);
     }
 
     /// The length of the signature, in bytes, when encoded.
@@ -585,8 +630,7 @@ impl fmt::Debug for Signature {
 /// # use std::sync::Arc;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// #
-/// # let mut csprng = rand::rngs::OsRng {};
-/// # let key = IdentityKey::new_temp(&mut csprng);
+/// # let key = IdentityKey::new();
 /// # let mut encoded = Vec::new();
 /// let data = b"I am some test data";
 /// // ...
@@ -621,7 +665,7 @@ impl UnverifiedSignature {
         self.hash_version
     }
 
-    /// The public [`Identity`] provided with this signature. Because this is an unverified 
+    /// The public [`Identity`] provided with this signature. Because this is an unverified
     /// signature, there can be no assurance that this identity has actually signed the data.
     pub fn signer(&self) -> &Identity {
         &self.id
@@ -655,7 +699,7 @@ impl fmt::Debug for UnverifiedSignature {
         f.debug_struct("UnverifiedSignature")
             .field("hash_version", &self.hash_version)
             .field("signer", &self.id)
-            .field("signature", &self.signature.as_ref())
+            .field("signature", &self.signature)
             .finish()
     }
 }
@@ -693,7 +737,8 @@ impl TryFrom<&[u8]> for UnverifiedSignature {
             expected: V1_IDENTITY_SIGN_SIZE,
             actual: data.len() - id_len,
         })?;
-        let id = Identity { id: ed25519_dalek::PublicKey::from_bytes(raw_id).or(Err(CryptoError::BadKey))? };
+        let raw_id = raw_id.try_into().unwrap();
+        let id = Identity { id: ed25519_dalek::VerifyingKey::from_bytes(raw_id).or(Err(CryptoError::BadKey))? };
         let signature = ed25519_dalek::Signature::try_from(raw_signature)
             .or(Err(CryptoError::SignatureFailed))?;
         Ok(UnverifiedSignature {
@@ -711,21 +756,31 @@ mod tests {
     #[test]
     fn basics() {
         let mut csprng = rand::rngs::OsRng;
-        let key = IdentityKey::new_temp(&mut csprng);
+        let key = IdentityKey::with_rng(&mut csprng);
         assert_eq!(key.version(), DEFAULT_SIGN_VERSION);
-        let key = IdentityKey::new_temp_with_version(&mut csprng, DEFAULT_SIGN_VERSION).unwrap();
+        let key = IdentityKey::with_rng_and_version(&mut csprng, DEFAULT_SIGN_VERSION).unwrap();
         assert_eq!(key.version(), DEFAULT_SIGN_VERSION);
-        let result = IdentityKey::new_temp_with_version(&mut csprng, 99u8);
+        let result = IdentityKey::with_rng_and_version(&mut csprng, 99u8);
         if let Err(CryptoError::UnsupportedVersion(99u8)) = result {
         } else {
-            panic!("Didn't get expected error on new_temp_with_version");
+            panic!("Didn't get expected error on with_rng_and_version");
+        }
+
+        let key = BareIdKey::with_rng(&mut csprng);
+        assert_eq!(key.id().version(), DEFAULT_SIGN_VERSION);
+        let key = BareIdKey::with_rng_and_version(&mut csprng, DEFAULT_SIGN_VERSION).unwrap();
+        assert_eq!(key.id().version(), DEFAULT_SIGN_VERSION);
+        let result = BareIdKey::with_rng_and_version(&mut csprng, 99u8);
+        if let Err(CryptoError::UnsupportedVersion(99u8)) = result {
+        } else {
+            panic!("Didn't get expected error on with_rng_and_version");
         }
     }
 
     #[test]
     fn display() {
         let mut csprng = rand::rngs::OsRng;
-        let key = IdentityKey::new_temp(&mut csprng);
+        let key = IdentityKey::with_rng(&mut csprng);
         let disp_key = format!("{}", &key);
         let disp_id = format!("{}", key.id());
         let base58 = key.id().to_base58();
@@ -735,9 +790,9 @@ mod tests {
     }
 
     #[test]
-    fn base58() {
+    fn base58_id() {
         let mut csprng = rand::rngs::OsRng;
-        let key = IdentityKey::new_temp(&mut csprng);
+        let key = IdentityKey::with_rng(&mut csprng);
         let mut base58 = key.id().to_base58();
         assert!(base58.len() > 1);
         let id = Identity::from_base58(&base58).unwrap();
@@ -752,9 +807,39 @@ mod tests {
     }
 
     #[test]
+    fn base58_bare_id_key() {
+        let key = BareIdKey::new();
+        let mut base58 = key.to_base58();
+        assert!(base58.len() > 1);
+        let key_dec = BareIdKey::from_base58(&base58).unwrap();
+        assert_eq!(key.id(), key_dec.id());
+        base58.push('a');
+        base58.push('a');
+        assert!(BareIdKey::from_base58(&base58).is_err());
+        base58.pop();
+        base58.pop();
+        base58.pop();
+        assert!(BareIdKey::from_base58(&base58).is_err());
+    }
+
+    #[test]
     fn encode() {
         let mut csprng = rand::rngs::OsRng;
-        let key = IdentityKey::new_temp(&mut csprng);
+        let key = IdentityKey::with_rng(&mut csprng);
+        let id = key.id();
+        let id_v0 = id.as_vec();
+        let mut id_v1 = Vec::new();
+        id.encode_vec(&mut id_v1);
+        assert_eq!(id_v0.len(), id.size());
+        assert_eq!(id_v0, id_v1);
+        let id = Identity::try_from(&id_v0[..]).unwrap();
+        assert_eq!(&id, key.id());
+    }
+
+    #[test]
+    fn encode_bare() {
+        let mut csprng = rand::rngs::OsRng;
+        let key = BareIdKey::with_rng(&mut csprng);
         let id = key.id();
         let id_v0 = id.as_vec();
         let mut id_v1 = Vec::new();
@@ -768,7 +853,7 @@ mod tests {
     #[test]
     fn id_len() {
         let mut csprng = rand::rngs::OsRng;
-        let key = IdentityKey::new_temp(&mut csprng);
+        let key = IdentityKey::with_rng(&mut csprng);
         let id = key.id();
         let len = id.size();
 
@@ -781,7 +866,7 @@ mod tests {
     #[test]
     fn signature_len() {
         let mut csprng = rand::rngs::OsRng;
-        let key = IdentityKey::new_temp(&mut csprng);
+        let key = IdentityKey::with_rng(&mut csprng);
         let hash = Hash::new(b"I am a test string");
         let sign = key.sign(&hash);
         let len = sign.size();
@@ -794,7 +879,7 @@ mod tests {
     #[test]
     fn sign() {
         let mut csprng = rand::rngs::OsRng;
-        let key = IdentityKey::new_temp(&mut csprng);
+        let key = IdentityKey::with_rng(&mut csprng);
 
         // Make new hash and check it
         let test_data = b"This is a test";
@@ -833,7 +918,7 @@ mod tests {
     #[test]
     fn wrong_hashes() {
         let mut csprng = rand::rngs::OsRng;
-        let key = IdentityKey::new_temp(&mut csprng);
+        let key = IdentityKey::with_rng(&mut csprng);
 
         // Make new hash and check it
         let test_data = b"This is a test";
@@ -858,7 +943,7 @@ mod tests {
     #[test]
     fn wrong_hash_versions() {
         let mut csprng = rand::rngs::OsRng;
-        let key = IdentityKey::new_temp(&mut csprng);
+        let key = IdentityKey::with_rng(&mut csprng);
 
         // Make new hash and check it
         let test_data = b"This is a test";
@@ -885,7 +970,7 @@ mod tests {
     #[test]
     fn wrong_id_versions() {
         let mut csprng = rand::rngs::OsRng;
-        let key = IdentityKey::new_temp(&mut csprng);
+        let key = IdentityKey::with_rng(&mut csprng);
 
         // Make new hash and check it
         let test_data = b"This is a test";
@@ -912,7 +997,7 @@ mod tests {
     #[test]
     fn corrupted_signature() {
         let mut csprng = rand::rngs::OsRng;
-        let key = IdentityKey::new_temp(&mut csprng);
+        let key = IdentityKey::with_rng(&mut csprng);
 
         // Make new hash and check it
         let test_data = b"This is a test";
@@ -923,17 +1008,29 @@ mod tests {
         let mut enc = Vec::new();
         sign.encode_vec(&mut enc);
 
-        // 1st Check: corrupt signature so uppermost 3 bits are inverted
-        // This has a different failure path than other corruptions, as ed25519_dalek checks the
-        // uppermost bits during initial reading, as a valid signature should have them all zeroed.
+        // 1st Check: Change the length
+        let unverified = UnverifiedSignature::try_from(&enc[..enc.len()-1]);
+        if unverified.is_ok() {
+            panic!("Should fail with BadLength when the signature has been truncated");
+        }
+        enc.push(0);
+        let unverified = UnverifiedSignature::try_from(&enc[..]);
+        if unverified.is_ok() {
+            panic!("Should fail with BadLength when the signature has been extended");
+        }
+        enc.pop();
+
+        // 2nd Check: corrupt signature so uppermost 3 bits are inverted
+        // This has a different failure condition than other corruptions, as ed25519_dalek checks the
+        // uppermost bits during signature verification - a valid signature should have them all zeroed.
         let last = enc.last_mut().unwrap();
         *last = !*last;
-        let unverified = UnverifiedSignature::try_from(&enc[..]);
-        if let Err(CryptoError::SignatureFailed) = unverified {
+        let unverified = UnverifiedSignature::try_from(&enc[..]).unwrap();
+        if let Err(CryptoError::SignatureFailed) = unverified.verify(&hash) {
         } else {
             panic!("Should fail with SignatureFailed when the last signature byte is wrong");
         }
-        // 2nd Check: corrupt other signature bytes
+        // 3rd Check: corrupt other signature bytes
         let last = enc.last_mut().unwrap();
         *last = !*last;
         let len = enc.len();
@@ -949,7 +1046,7 @@ mod tests {
     #[test]
     fn corrupted_id() {
         let mut csprng = rand::rngs::OsRng;
-        let key = IdentityKey::new_temp(&mut csprng);
+        let key = IdentityKey::with_rng(&mut csprng);
 
         // Make new hash and check it
         let test_data = b"This is a test";
@@ -978,8 +1075,8 @@ mod tests {
     #[test]
     fn substitute_wrong_id() {
         let mut csprng = rand::rngs::OsRng;
-        let key = IdentityKey::new_temp(&mut csprng);
-        let other_id = IdentityKey::new_temp(&mut csprng);
+        let key = IdentityKey::with_rng(&mut csprng);
+        let other_id = IdentityKey::with_rng(&mut csprng);
 
         // Make new hash and check it
         let test_data = b"This is a test";

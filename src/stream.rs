@@ -13,7 +13,7 @@
 //!
 //! // Make a new temporary key
 //! let mut csprng = rand::rngs::OsRng {};
-//! let key = StreamKey::new_temp(&mut csprng);
+//! let key = StreamKey::with_rng(&mut csprng);
 //! let id = key.id().clone();
 //!
 //! println!("StreamId(Base58): {}", key.id());
@@ -53,8 +53,8 @@
 //! encrypted payloads.
 
 use crate::{
-    identity::{new_identity_key, ContainedIdKey, IdentityKey},
-    lock::{lock_id_encrypt, new_lock_key, ContainedLockKey, LockId, LockKey},
+    identity::{BareIdKey, IdentityKey},
+    lock::{lock_id_encrypt, BareLockKey, LockId, LockKey},
     lockbox::*,
     CryptoError, CryptoSrc,
 };
@@ -104,7 +104,7 @@ pub(crate) fn stream_id_size(_version: u8) -> usize {
 ///
 /// // Make a new temporary key
 /// let mut csprng = rand::rngs::OsRng {};
-/// let key = StreamKey::new_temp(&mut csprng);
+/// let key = StreamKey::with_rng(&mut csprng);
 /// let id = key.id().clone();
 ///
 /// // Encrypt some data with the key, then turn it into a byte vector
@@ -124,24 +124,46 @@ pub struct StreamKey {
     interface: Arc<dyn StreamInterface>,
 }
 
+#[cfg(feature = "getrandom")]
+impl Default for StreamKey {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StreamKey {
+
+    /// Create a new `StreamKey` to hold a `StreamInterface` implementation. Can be used by
+    /// implementors of a vault when making new `StreamKey` instances.
+    pub fn from_interface(interface: Arc<dyn StreamInterface>) -> Self {
+        StreamKey { interface }
+    }
+
     /// Generate a temporary `StreamKey` that exists only in program memory.
-    pub fn new_temp<R>(csprng: &mut R) -> StreamKey
+    #[cfg(feature = "getrandom")]
+    pub fn new() -> StreamKey {
+        let interface = Arc::new(BareStreamKey::new());
+        Self::from_interface(interface)
+    }
+
+    /// Generate a temporary `StreamKey` that exists only in program memory,
+    /// using the provided cryptographic RNG.
+    pub fn with_rng<R>(csprng: &mut R) -> StreamKey
     where
         R: CryptoRng + RngCore,
     {
-        let interface = Arc::new(ContainedStreamKey::generate(csprng));
-        new_stream_key(interface)
+        let interface = Arc::new(BareStreamKey::with_rng(csprng));
+        Self::from_interface(interface)
     }
 
     /// Generate a temporary `StreamKey` that exists only in program memory. Uses the specified
     /// version instead of the default, and fails if the version is unsupported.
-    pub fn new_temp_with_version<R>(csprng: &mut R, version: u8) -> Result<StreamKey, CryptoError>
+    pub fn with_rng_and_version<R>(csprng: &mut R, version: u8) -> Result<StreamKey, CryptoError>
     where
         R: CryptoRng + RngCore,
     {
-        let interface = Arc::new(ContainedStreamKey::with_version(csprng, version)?);
-        Ok(new_stream_key(interface))
+        let interface = Arc::new(BareStreamKey::with_rng_and_version(csprng, version)?);
+        Ok(Self::from_interface(interface))
     }
 
     /// Version of symmetric encryption algorithm used by this key.
@@ -244,12 +266,6 @@ impl fmt::Display for StreamKey {
     }
 }
 
-/// Create a new `StreamKey` to hold a `StreamInterface` implementation. Can be used by
-/// implementors of a vault when making new `StreamKey` instances.
-pub fn new_stream_key(interface: Arc<dyn StreamInterface>) -> StreamKey {
-    StreamKey { interface }
-}
-
 /// A symmetric encryption/decryption interface, implemented by anything that can hold a symmetric
 /// encryption key.
 ///
@@ -321,23 +337,46 @@ pub fn stream_id_from_key(version: u8, key: &[u8]) -> StreamId {
 
 /// A self-contained implementor of `StreamInterface`. It's expected this will be used unless the
 /// symmetric key is being managed by the OS or a hardware module.
-pub struct ContainedStreamKey {
+pub struct BareStreamKey {
     key: [u8; V1_STREAM_KEY_SIZE],
     id: StreamId,
 }
 
-impl ContainedStreamKey {
+#[cfg(feature = "getrandom")]
+impl Default for BareStreamKey {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl BareStreamKey {
+
+    /// Generate a new random key.
+    #[cfg(feature = "getrandom")]
+    pub fn new() -> Self {
+        let mut key = [0; V1_STREAM_KEY_SIZE];
+        rand_core::OsRng.fill_bytes(&mut key);
+        let new = Self {
+            key,
+            id: stream_id_from_key(DEFAULT_STREAM_VERSION, &key),
+        };
+        key.zeroize();
+        debug_assert!(key.iter().all(|&x| x == 0));
+        debug_assert!(new.key.iter().any(|&x| x != 0));
+        new
+    }
+
     /// Generate a new key, given a cryptographic RNG.
-    pub fn generate<R>(csprng: &mut R) -> Self
+    pub fn with_rng<R>(csprng: &mut R) -> Self
     where
         R: CryptoRng + RngCore,
     {
-        Self::with_version(csprng, DEFAULT_STREAM_VERSION).unwrap()
+        Self::with_rng_and_version(csprng, DEFAULT_STREAM_VERSION).unwrap()
     }
 
     /// Generate a new key with a specific version, given a cryptographic RNG. Fails if the version
     /// isn't supported.
-    pub fn with_version<R>(csprng: &mut R, version: u8) -> Result<Self, CryptoError>
+    pub fn with_rng_and_version<R>(csprng: &mut R, version: u8) -> Result<Self, CryptoError>
     where
         R: CryptoRng + RngCore,
     {
@@ -403,7 +442,7 @@ impl ContainedStreamKey {
     }
 }
 
-impl TryFrom<&[u8]> for ContainedStreamKey {
+impl TryFrom<&[u8]> for BareStreamKey {
     type Error = CryptoError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
@@ -438,13 +477,13 @@ impl TryFrom<&[u8]> for ContainedStreamKey {
     }
 }
 
-impl Drop for ContainedStreamKey {
+impl Drop for BareStreamKey {
     fn drop(&mut self) {
         self.key.zeroize();
     }
 }
 
-impl StreamInterface for ContainedStreamKey {
+impl StreamInterface for BareStreamKey {
     fn id(&self) -> &StreamId {
         &self.id
     }
@@ -500,9 +539,9 @@ impl StreamInterface for ContainedStreamKey {
         let recipient = lockbox.recipient();
         let parts = lockbox.as_parts();
         let mut key = self.decrypt_parts(&recipient, parts)?;
-        let result = ContainedLockKey::try_from(key.as_ref());
+        let result = BareLockKey::try_from(key.as_ref());
         key.zeroize();
-        Ok(new_lock_key(Arc::new(result?)))
+        Ok(LockKey::from_interface(Arc::new(result?)))
     }
 
     fn decrypt_identity_key(
@@ -512,18 +551,18 @@ impl StreamInterface for ContainedStreamKey {
         let recipient = lockbox.recipient();
         let parts = lockbox.as_parts();
         let mut key = self.decrypt_parts(&recipient, parts)?;
-        let result = ContainedIdKey::try_from(key.as_ref());
+        let result = BareIdKey::try_from(key.as_ref());
         key.zeroize();
-        Ok(new_identity_key(Arc::new(result?)))
+        Ok(IdentityKey::from_interface(Arc::new(result?)))
     }
 
     fn decrypt_stream_key(&self, lockbox: &StreamLockboxRef) -> Result<StreamKey, CryptoError> {
         let recipient = lockbox.recipient();
         let parts = lockbox.as_parts();
         let mut key = self.decrypt_parts(&recipient, parts)?;
-        let result = ContainedStreamKey::try_from(key.as_ref());
+        let result = BareStreamKey::try_from(key.as_ref());
         key.zeroize();
-        Ok(new_stream_key(Arc::new(result?)))
+        Ok(StreamKey::from_interface(Arc::new(result?)))
     }
 
     fn decrypt_data(&self, lockbox: &DataLockboxRef) -> Result<Vec<u8>, CryptoError> {
@@ -583,7 +622,7 @@ impl StreamInterface for ContainedStreamKey {
 /// # use fog_crypto::stream::*;
 ///
 /// let mut csprng = rand::rngs::OsRng {};
-/// let key = StreamKey::new_temp(&mut csprng);
+/// let key = StreamKey::with_rng(&mut csprng);
 /// let id = key.id();
 ///
 /// println!("StreamId(Base58): {}", id);
@@ -598,7 +637,7 @@ impl StreamInterface for ContainedStreamKey {
 /// # let mut csprng = rand::rngs::OsRng {};
 /// #
 /// // We start with a known StreamKey
-/// let key = StreamKey::new_temp(&mut csprng);
+/// let key = StreamKey::with_rng(&mut csprng);
 /// #
 /// # // Encrypt some data with the key, then turn it into a byte vector
 /// # let data = b"I am about to be enciphered, though you can't see me in here...";
@@ -736,11 +775,11 @@ mod tests {
     #[test]
     fn basics() {
         let mut csprng = rand::rngs::OsRng;
-        let key = StreamKey::new_temp(&mut csprng);
+        let key = StreamKey::with_rng(&mut csprng);
         assert_eq!(key.version(), DEFAULT_STREAM_VERSION);
-        let key = StreamKey::new_temp_with_version(&mut csprng, DEFAULT_STREAM_VERSION).unwrap();
+        let key = StreamKey::with_rng_and_version(&mut csprng, DEFAULT_STREAM_VERSION).unwrap();
         assert_eq!(key.version(), DEFAULT_STREAM_VERSION);
-        let result = StreamKey::new_temp_with_version(&mut csprng, 99u8);
+        let result = StreamKey::with_rng_and_version(&mut csprng, 99u8);
         if let Err(CryptoError::UnsupportedVersion(99u8)) = result {
         } else {
             panic!("Didn't get expected error on new_temp_with_version");
@@ -749,8 +788,7 @@ mod tests {
 
     #[test]
     fn display() {
-        let mut csprng = rand::rngs::OsRng;
-        let key = StreamKey::new_temp(&mut csprng);
+        let key = StreamKey::new();
         let disp_key = format!("{}", &key);
         let disp_id = format!("{}", key.id());
         let base58 = key.id().to_base58();
@@ -763,8 +801,7 @@ mod tests {
     fn id_sanity_check() {
         // Just make sure the ID & Key aren't somehow the same
         // I cannot imagine screwing up the code enough for this to happen, but just in case...
-        let mut csprng = rand::rngs::OsRng;
-        let key = ContainedStreamKey::generate(&mut csprng);
+        let key = BareStreamKey::new();
         let id = key.id();
         let mut enc_key = Vec::new();
         let mut enc_id = Vec::new();
@@ -775,8 +812,7 @@ mod tests {
 
     #[test]
     fn base58() {
-        let mut csprng = rand::rngs::OsRng;
-        let key = StreamKey::new_temp(&mut csprng);
+        let key = StreamKey::new();
         let mut base58 = key.id().to_base58();
         assert!(base58.len() > 1);
         let id = StreamId::from_base58(&base58).unwrap();
@@ -792,8 +828,7 @@ mod tests {
 
     #[test]
     fn encode() {
-        let mut csprng = rand::rngs::OsRng;
-        let key = StreamKey::new_temp(&mut csprng);
+        let key = StreamKey::new();
         let id = key.id();
         let mut id_vec = Vec::new();
         id.encode_vec(&mut id_vec);
@@ -957,7 +992,7 @@ mod tests {
     fn setup_data() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
         let mut csprng = rand::rngs::OsRng;
-        let key = StreamKey::new_temp(&mut csprng);
+        let key = StreamKey::new();
         let message = b"I am a test message, going undercover";
 
         // Encrypt
@@ -1049,8 +1084,8 @@ mod tests {
     fn setup_id() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
         let mut csprng = rand::rngs::OsRng;
-        let key = StreamKey::new_temp(&mut csprng);
-        let to_send = IdentityKey::new_temp(&mut csprng);
+        let key = StreamKey::with_rng(&mut csprng);
+        let to_send = IdentityKey::with_rng(&mut csprng);
 
         // Encrypt
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
@@ -1141,9 +1176,8 @@ mod tests {
     fn setup_id_raw() -> (Vec<u8>, impl Fn(&[u8]) -> bool) {
         use crate::identity::SignInterface;
         // Setup
-        let mut csprng = rand::rngs::OsRng;
-        let key = StreamKey::new_temp(&mut csprng);
-        let to_send = crate::ContainedIdKey::generate(&mut csprng);
+        let key = StreamKey::new();
+        let to_send = crate::BareIdKey::new();
 
         // Encrypt
         let mut content = Vec::new();
@@ -1198,8 +1232,8 @@ mod tests {
     fn setup_stream() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
         let mut csprng = rand::rngs::OsRng;
-        let key = StreamKey::new_temp(&mut csprng);
-        let to_send = StreamKey::new_temp(&mut csprng);
+        let key = StreamKey::with_rng(&mut csprng);
+        let to_send = StreamKey::with_rng(&mut csprng);
 
         // Encrypt
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
@@ -1289,9 +1323,8 @@ mod tests {
 
     fn setup_stream_raw() -> (Vec<u8>, impl Fn(&[u8]) -> bool) {
         // Setup
-        let mut csprng = rand::rngs::OsRng;
-        let key = StreamKey::new_temp(&mut csprng);
-        let to_send = crate::ContainedStreamKey::generate(&mut csprng);
+        let key = StreamKey::new();
+        let to_send = crate::BareStreamKey::new();
 
         // Encrypt
         let mut content = Vec::new();
@@ -1346,8 +1379,8 @@ mod tests {
     fn setup_lock() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
         let mut csprng = rand::rngs::OsRng;
-        let key = StreamKey::new_temp(&mut csprng);
-        let to_send = LockKey::new_temp(&mut csprng);
+        let key = StreamKey::with_rng(&mut csprng);
+        let to_send = LockKey::with_rng(&mut csprng);
 
         // Encrypt
         let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
@@ -1439,8 +1472,8 @@ mod tests {
         use crate::lock::LockInterface;
         // Setup
         let mut csprng = rand::rngs::OsRng;
-        let key = StreamKey::new_temp(&mut csprng);
-        let to_send = crate::ContainedLockKey::generate(&mut csprng);
+        let key = StreamKey::with_rng(&mut csprng);
+        let to_send = crate::BareLockKey::with_rng(&mut csprng);
 
         // Encrypt
         let mut content = Vec::new();

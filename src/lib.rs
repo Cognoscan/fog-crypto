@@ -14,9 +14,9 @@
 //!
 //! # User Guidelines
 //!
-//! You probably shouldn't be using this library directly. Portions of it should instead be 
-//! exported by an implementor of a Vault, and you should use those. Alternately, you might be 
-//! using this through [`fog-pack`](https://crates.io/crates/fog-pack), which also re-exports 
+//! You probably shouldn't be using this library directly. Portions of it should instead be
+//! exported by an implementor of a Vault, and you should use those. Alternately, you might be
+//! using this through [`fog-pack`](https://crates.io/crates/fog-pack), which also re-exports
 //! portions of this library. You can expect to see these primitives:
 //!
 //! General:
@@ -31,6 +31,7 @@
 //! - [`UnverifiedSignature`]: A cryptographic signature that hasn't been verified yet.
 //! - [`IdentityKey`]: A private key for signing hashes.
 //! - [`Identity`]: A public key identity to indicate which `IdentityKey` created a given `Signature`.
+//! - [`BareIdKey`]: A private signing key that can be exported without encrypting it.
 //!
 //! Symmetric-Key Encryption:
 //! - [`StreamKey`]: A shared symmetric key for encrypting & decrypting data.
@@ -54,7 +55,7 @@
 //! software, you probably want to use the various `ContainedXXX` structs for holding keys, and
 //! store them by exporting them for some master key. Avoid letting the keys sit around in some
 //! unencrypted form. Your master key can be created by obtaining a 32-byte random byte sequence,
-//! prepending it with a 1 (the version byte), and using [`ContainedStreamKey`]'s `try_from`
+//! prepending it with a 1 (the version byte), and using [`BareStreamKey`]'s `try_from`
 //! implementation to encapsulate the sequence. Make sure to zeroize the master key after doing
 //! this!
 //!

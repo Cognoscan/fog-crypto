@@ -201,8 +201,8 @@ pub(crate) fn lockbox_tag_size(_version: u8) -> usize {
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
 /// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::new_temp(&mut csprng);
-/// # let to_send = LockKey::new_temp(&mut csprng);
+/// # let key = StreamKey::with_rng(&mut csprng);
+/// # let to_send = LockKey::with_rng(&mut csprng);
 /// #
 /// # // Encrypt
 /// # let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
@@ -269,8 +269,8 @@ impl std::borrow::Borrow<LockLockboxRef> for LockLockbox {
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
 /// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::new_temp(&mut csprng);
-/// # let to_send = LockKey::new_temp(&mut csprng);
+/// # let key = StreamKey::with_rng(&mut csprng);
+/// # let to_send = LockKey::with_rng(&mut csprng);
 /// #
 /// # // Encrypt
 /// # let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
@@ -374,8 +374,8 @@ impl fmt::Debug for LockLockboxRef {
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
 /// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::new_temp(&mut csprng);
-/// # let to_send = IdentityKey::new_temp(&mut csprng);
+/// # let key = StreamKey::with_rng(&mut csprng);
+/// # let to_send = IdentityKey::with_rng(&mut csprng);
 /// #
 /// # // Encrypt
 /// # let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
@@ -442,8 +442,8 @@ impl std::borrow::Borrow<IdentityLockboxRef> for IdentityLockbox {
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
 /// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::new_temp(&mut csprng);
-/// # let to_send = IdentityKey::new_temp(&mut csprng);
+/// # let key = StreamKey::with_rng(&mut csprng);
+/// # let to_send = IdentityKey::with_rng(&mut csprng);
 /// #
 /// # // Encrypt
 /// # let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
@@ -546,8 +546,8 @@ impl fmt::Debug for IdentityLockboxRef {
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
 /// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::new_temp(&mut csprng);
-/// # let to_send = StreamKey::new_temp(&mut csprng);
+/// # let key = StreamKey::with_rng(&mut csprng);
+/// # let to_send = StreamKey::with_rng(&mut csprng);
 /// #
 /// # // Encrypt
 /// # let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
@@ -613,8 +613,8 @@ impl std::borrow::Borrow<StreamLockboxRef> for StreamLockbox {
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
 /// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::new_temp(&mut csprng);
-/// # let to_send = StreamKey::new_temp(&mut csprng);
+/// # let key = StreamKey::with_rng(&mut csprng);
+/// # let to_send = StreamKey::with_rng(&mut csprng);
 /// #
 /// # // Encrypt
 /// # let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
@@ -717,7 +717,7 @@ impl fmt::Debug for StreamLockboxRef {
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
 /// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::new_temp(&mut csprng);
+/// # let key = StreamKey::with_rng(&mut csprng);
 /// # let to_send = b"I am data to be encrypted, and you don't need to see me.";
 /// #
 /// # // Encrypt
@@ -784,7 +784,7 @@ impl std::borrow::Borrow<DataLockboxRef> for DataLockbox {
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
 /// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::new_temp(&mut csprng);
+/// # let key = StreamKey::with_rng(&mut csprng);
 /// # let to_send = b"I am data to be encrypted, and you don't need to see me.";
 /// #
 /// # // Encrypt
