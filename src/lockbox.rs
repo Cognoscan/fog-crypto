@@ -200,12 +200,11 @@ pub(crate) fn lockbox_tag_size(_version: u8) -> usize {
 /// # use fog_crypto::stream::*;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
-/// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::with_rng(&mut csprng);
-/// # let to_send = LockKey::with_rng(&mut csprng);
+/// # let key = StreamKey::new();
+/// # let to_send = LockKey::new();
 /// #
 /// # // Encrypt
-/// # let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+/// # let lockbox = to_send.export_for_stream(&key).unwrap();
 /// # let enc = Vec::from(lockbox.as_bytes());
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
@@ -268,12 +267,11 @@ impl std::borrow::Borrow<LockLockboxRef> for LockLockbox {
 /// # use fog_crypto::stream::*;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
-/// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::with_rng(&mut csprng);
-/// # let to_send = LockKey::with_rng(&mut csprng);
+/// # let key = StreamKey::new();
+/// # let to_send = LockKey::new();
 /// #
 /// # // Encrypt
-/// # let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+/// # let lockbox = to_send.export_for_stream(&key).unwrap();
 /// # let enc = Vec::from(lockbox.as_bytes());
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
@@ -373,12 +371,11 @@ impl fmt::Debug for LockLockboxRef {
 /// # use fog_crypto::stream::*;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
-/// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::with_rng(&mut csprng);
-/// # let to_send = IdentityKey::with_rng(&mut csprng);
+/// # let key = StreamKey::new();
+/// # let to_send = IdentityKey::new();
 /// #
 /// # // Encrypt
-/// # let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+/// # let lockbox = to_send.export_for_stream(&key).unwrap();
 /// # let enc = Vec::from(lockbox.as_bytes());
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
@@ -441,12 +438,11 @@ impl std::borrow::Borrow<IdentityLockboxRef> for IdentityLockbox {
 /// # use fog_crypto::stream::*;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
-/// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::with_rng(&mut csprng);
-/// # let to_send = IdentityKey::with_rng(&mut csprng);
+/// # let key = StreamKey::new();
+/// # let to_send = IdentityKey::new();
 /// #
 /// # // Encrypt
-/// # let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+/// # let lockbox = to_send.export_for_stream(&key).unwrap();
 /// # let enc = Vec::from(lockbox.as_bytes());
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
@@ -545,12 +541,11 @@ impl fmt::Debug for IdentityLockboxRef {
 /// # use fog_crypto::stream::*;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
-/// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::with_rng(&mut csprng);
-/// # let to_send = StreamKey::with_rng(&mut csprng);
+/// # let key = StreamKey::new();
+/// # let to_send = StreamKey::new();
 /// #
 /// # // Encrypt
-/// # let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+/// # let lockbox = to_send.export_for_stream(&key).unwrap();
 /// # let enc = Vec::from(lockbox.as_bytes());
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
@@ -612,12 +607,11 @@ impl std::borrow::Borrow<StreamLockboxRef> for StreamLockbox {
 /// # use fog_crypto::stream::*;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
-/// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::with_rng(&mut csprng);
-/// # let to_send = StreamKey::with_rng(&mut csprng);
+/// # let key = StreamKey::new();
+/// # let to_send = StreamKey::new();
 /// #
 /// # // Encrypt
-/// # let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+/// # let lockbox = to_send.export_for_stream(&key).unwrap();
 /// # let enc = Vec::from(lockbox.as_bytes());
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
@@ -716,12 +710,11 @@ impl fmt::Debug for StreamLockboxRef {
 /// # use fog_crypto::stream::*;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
-/// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::with_rng(&mut csprng);
+/// # let key = StreamKey::new();
 /// # let to_send = b"I am data to be encrypted, and you don't need to see me.";
 /// #
 /// # // Encrypt
-/// # let lockbox = key.encrypt_data(&mut csprng, &to_send[..]);
+/// # let lockbox = key.encrypt_data(&to_send[..]);
 /// # let enc = Vec::from(lockbox.as_bytes());
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
@@ -783,12 +776,11 @@ impl std::borrow::Borrow<DataLockboxRef> for DataLockbox {
 /// # use fog_crypto::stream::*;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # // Setup
-/// # let mut csprng = rand::rngs::OsRng;
-/// # let key = StreamKey::with_rng(&mut csprng);
+/// # let key = StreamKey::new();
 /// # let to_send = b"I am data to be encrypted, and you don't need to see me.";
 /// #
 /// # // Encrypt
-/// # let lockbox = key.encrypt_data(&mut csprng, &to_send[..]);
+/// # let lockbox = key.encrypt_data(&to_send[..]);
 /// # let enc = Vec::from(lockbox.as_bytes());
 /// #
 /// // We have `enc`, a byte vector containing a lockbox

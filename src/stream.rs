@@ -12,15 +12,14 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! // Make a new temporary key
-//! let mut csprng = rand::rngs::OsRng {};
-//! let key = StreamKey::with_rng(&mut csprng);
+//! let key = StreamKey::new();
 //! let id = key.id().clone();
 //!
 //! println!("StreamId(Base58): {}", key.id());
 //!
 //! // Encrypt some data with the key, then turn it into a byte vector
 //! let data = b"I am sensitive information, about to be encrypted";
-//! let lockbox = key.encrypt_data(&mut csprng, data.as_ref());
+//! let lockbox = key.encrypt_data(data.as_ref());
 //! let mut encoded = Vec::new();
 //! encoded.extend_from_slice(lockbox.as_bytes());
 //!
@@ -103,13 +102,12 @@ pub(crate) fn stream_id_size(_version: u8) -> usize {
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// // Make a new temporary key
-/// let mut csprng = rand::rngs::OsRng {};
-/// let key = StreamKey::with_rng(&mut csprng);
+/// let key = StreamKey::new();
 /// let id = key.id().clone();
 ///
 /// // Encrypt some data with the key, then turn it into a byte vector
 /// let data = b"I am sensitive information, about to be encrypted";
-/// let lockbox = key.encrypt_data(&mut csprng, data.as_ref());
+/// let lockbox = key.encrypt_data(data.as_ref());
 /// let mut encoded = Vec::new();
 /// encoded.extend_from_slice(lockbox.as_bytes());
 ///
@@ -176,9 +174,18 @@ impl StreamKey {
         self.interface.id()
     }
 
+    #[cfg(feature = "getrandom")]
+    /// Encrypt a byte slice into a `DataLockbox`.
+    pub fn encrypt_data(
+        &self,
+        content: &[u8],
+    ) -> DataLockbox {
+        self.encrypt_data_with_rng(&mut rand_core::OsRng, content)
+    }
+
     /// Encrypt a byte slice into a `DataLockbox`. Requires a cryptographic RNG to generate the
     /// needed nonce.
-    pub fn encrypt_data<R: CryptoRng + RngCore>(
+    pub fn encrypt_data_with_rng<R: CryptoRng + RngCore>(
         &self,
         csprng: &mut R,
         content: &[u8],
@@ -217,7 +224,16 @@ impl StreamKey {
 
     /// Pack this secret into a `StreamLockbox`, meant for the recipient specified by `id`. Returns
     /// None if this key cannot be exported.
-    pub fn export_for_lock<R: CryptoRng + RngCore>(
+    pub fn export_for_lock(
+        &self,
+        lock: &LockId,
+    ) -> Option<StreamLockbox> {
+        self.interface.self_export_lock(&mut rand_core::OsRng, lock)
+    }
+
+    /// Pack this secret into a `StreamLockbox`, meant for the recipient specified by `id`. Returns
+    /// None if this key cannot be exported.
+    pub fn export_for_lock_with_rng<R: CryptoRng + RngCore>(
         &self,
         csprng: &mut R,
         lock: &LockId,
@@ -225,11 +241,23 @@ impl StreamKey {
         self.interface.self_export_lock(csprng, lock)
     }
 
+    #[cfg(feature = "getrandom")]
     /// Pack this key into a `StreamLockbox`, meant for the recipient specified by `stream`. Returns
     /// None if this key cannot be exported for the given recipient. Generally, the recipient
     /// should be in the same Vault as the key being exported, or the exported key should be a
     /// temporary key.
-    pub fn export_for_stream<R: CryptoRng + RngCore>(
+    pub fn export_for_stream(
+        &self,
+        stream: &StreamKey,
+    ) -> Option<StreamLockbox> {
+        self.interface.self_export_stream(&mut rand_core::OsRng, stream)
+    }
+
+    /// Pack this key into a `StreamLockbox`, meant for the recipient specified by `stream`. Returns
+    /// None if this key cannot be exported for the given recipient. Generally, the recipient
+    /// should be in the same Vault as the key being exported, or the exported key should be a
+    /// temporary key.
+    pub fn export_for_stream_with_rng<R: CryptoRng + RngCore>(
         &self,
         csprng: &mut R,
         stream: &StreamKey,
@@ -621,8 +649,7 @@ impl StreamInterface for BareStreamKey {
 /// ```
 /// # use fog_crypto::stream::*;
 ///
-/// let mut csprng = rand::rngs::OsRng {};
-/// let key = StreamKey::with_rng(&mut csprng);
+/// let key = StreamKey::new();
 /// let id = key.id();
 ///
 /// println!("StreamId(Base58): {}", id);
@@ -634,14 +661,13 @@ impl StreamInterface for BareStreamKey {
 /// # use fog_crypto::stream::*;
 /// # use fog_crypto::lockbox::*;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// # let mut csprng = rand::rngs::OsRng {};
 /// #
 /// // We start with a known StreamKey
-/// let key = StreamKey::with_rng(&mut csprng);
+/// let key = StreamKey::new();
 /// #
 /// # // Encrypt some data with the key, then turn it into a byte vector
 /// # let data = b"I am about to be enciphered, though you can't see me in here...";
-/// # let lockbox = key.encrypt_data(&mut csprng, data.as_ref());
+/// # let lockbox = key.encrypt_data(data.as_ref());
 /// # let mut encoded = Vec::new();
 /// # encoded.extend_from_slice(lockbox.as_bytes());
 ///
@@ -991,12 +1017,11 @@ mod tests {
 
     fn setup_data() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
-        let mut csprng = rand::rngs::OsRng;
         let key = StreamKey::new();
         let message = b"I am a test message, going undercover";
 
         // Encrypt
-        let lockbox = key.encrypt_data(&mut csprng, message);
+        let lockbox = key.encrypt_data(message);
         let recipient = LockboxRecipient::StreamId(key.id().clone());
         assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
@@ -1083,12 +1108,11 @@ mod tests {
 
     fn setup_id() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
-        let mut csprng = rand::rngs::OsRng;
-        let key = StreamKey::with_rng(&mut csprng);
-        let to_send = IdentityKey::with_rng(&mut csprng);
+        let key = StreamKey::new();
+        let to_send = IdentityKey::new();
 
         // Encrypt
-        let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+        let lockbox = to_send.export_for_stream(&key).unwrap();
         let recipient = LockboxRecipient::StreamId(key.id().clone());
         assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
@@ -1231,12 +1255,11 @@ mod tests {
 
     fn setup_stream() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
-        let mut csprng = rand::rngs::OsRng;
-        let key = StreamKey::with_rng(&mut csprng);
-        let to_send = StreamKey::with_rng(&mut csprng);
+        let key = StreamKey::new();
+        let to_send = StreamKey::new();
 
         // Encrypt
-        let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+        let lockbox = to_send.export_for_stream(&key).unwrap();
         let recipient = LockboxRecipient::StreamId(key.id().clone());
         assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
@@ -1378,12 +1401,11 @@ mod tests {
 
     fn setup_lock() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
-        let mut csprng = rand::rngs::OsRng;
-        let key = StreamKey::with_rng(&mut csprng);
-        let to_send = LockKey::with_rng(&mut csprng);
+        let key = StreamKey::new();
+        let to_send = LockKey::new();
 
         // Encrypt
-        let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+        let lockbox = to_send.export_for_stream(&key).unwrap();
         let recipient = LockboxRecipient::StreamId(key.id().clone());
         assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
@@ -1471,9 +1493,8 @@ mod tests {
     fn setup_lock_raw() -> (Vec<u8>, impl Fn(&[u8]) -> bool) {
         use crate::lock::LockInterface;
         // Setup
-        let mut csprng = rand::rngs::OsRng;
-        let key = StreamKey::with_rng(&mut csprng);
-        let to_send = crate::BareLockKey::with_rng(&mut csprng);
+        let key = StreamKey::new();
+        let to_send = crate::BareLockKey::new();
 
         // Encrypt
         let mut content = Vec::new();

@@ -1271,10 +1271,9 @@ mod test {
 
     #[test]
     fn serde_json_data_lockbox() {
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
+        let key = crate::StreamKey::new();
         let to_send = b"Crypto in JSON, eh?";
-        let lockbox = key.encrypt_data(&mut csprng, to_send);
+        let lockbox = key.encrypt_data(to_send);
 
         let json = serde_json::to_string(&lockbox).unwrap();
         println!("{}", json);
@@ -1289,10 +1288,9 @@ mod test {
         // Verify only that LockboxRef encodes the same way as main Lockbox
         // Set up crypto
         use std::ops::Deref;
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
+        let key = crate::StreamKey::new();
         let to_send = b"Crypto in JSON, eh?";
-        let lockbox = key.encrypt_data(&mut csprng, to_send);
+        let lockbox = key.encrypt_data(to_send);
         // Encode & check
         let json1 = serde_json::to_string(&lockbox).unwrap();
         let lockbox_ref: &DataLockboxRef = lockbox.deref();
@@ -1303,10 +1301,9 @@ mod test {
     #[test]
     fn bincode_data_lockbox() {
         // Set up crypto
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
+        let key = crate::StreamKey::new();
         let to_send = b"Crypto in bincode, eh?";
-        let lockbox = key.encrypt_data(&mut csprng, to_send);
+        let lockbox = key.encrypt_data(to_send);
         // Encode
         let bin = bincode::serialize(&lockbox).unwrap();
         println!("Original Lockbox: {:x?}", lockbox);
@@ -1321,10 +1318,9 @@ mod test {
     fn bincode_data_lockbox_ref() {
         // Set up crypto
         use std::ops::Deref;
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
+        let key = crate::StreamKey::new();
         let to_send = b"Crypto in bincode, eh?";
-        let lockbox = key.encrypt_data(&mut csprng, to_send);
+        let lockbox = key.encrypt_data(to_send);
         // Encode
         let lockbox_ref: &DataLockboxRef = lockbox.deref();
         let bin = bincode::serialize(lockbox_ref).unwrap();
@@ -1338,10 +1334,9 @@ mod test {
 
     #[test]
     fn serde_json_identity_lockbox() {
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
-        let to_send = crate::IdentityKey::with_rng(&mut csprng);
-        let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+        let key = crate::StreamKey::new();
+        let to_send = crate::IdentityKey::new();
+        let lockbox = to_send.export_for_stream(&key).unwrap();
 
         let json = serde_json::to_string(&lockbox).unwrap();
         println!("{}", json);
@@ -1356,10 +1351,9 @@ mod test {
         // Verify only that LockboxRef encodes the same way as main Lockbox
         // Set up crypto
         use std::ops::Deref;
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
-        let to_send = crate::IdentityKey::with_rng(&mut csprng);
-        let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+        let key = crate::StreamKey::new();
+        let to_send = crate::IdentityKey::new();
+        let lockbox = to_send.export_for_stream(&key).unwrap();
         // Encode & check
         let json1 = serde_json::to_string(&lockbox).unwrap();
         let lockbox_ref: &IdentityLockboxRef = lockbox.deref();
@@ -1370,10 +1364,9 @@ mod test {
     #[test]
     fn bincode_identity_lockbox() {
         // Set up crypto
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
-        let to_send = crate::IdentityKey::with_rng(&mut csprng);
-        let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+        let key = crate::StreamKey::new();
+        let to_send = crate::IdentityKey::new();
+        let lockbox = to_send.export_for_stream(&key).unwrap();
         // Encode
         let bin = bincode::serialize(&lockbox).unwrap();
         println!("Original Lockbox: {:x?}", lockbox);
@@ -1388,10 +1381,9 @@ mod test {
     fn bincode_identity_lockbox_ref() {
         // Set up crypto
         use std::ops::Deref;
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
-        let to_send = crate::IdentityKey::with_rng(&mut csprng);
-        let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+        let key = crate::StreamKey::new();
+        let to_send = crate::IdentityKey::new();
+        let lockbox = to_send.export_for_stream(&key).unwrap();
         // Encode
         let lockbox_ref: &IdentityLockboxRef = lockbox.deref();
         let bin = bincode::serialize(lockbox_ref).unwrap();
@@ -1405,10 +1397,9 @@ mod test {
 
     #[test]
     fn serde_json_stream_lockbox() {
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
-        let to_send = crate::StreamKey::with_rng(&mut csprng);
-        let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+        let key = crate::StreamKey::new();
+        let to_send = crate::StreamKey::new();
+        let lockbox = to_send.export_for_stream(&key).unwrap();
 
         let json = serde_json::to_string(&lockbox).unwrap();
         println!("{}", json);
@@ -1423,10 +1414,9 @@ mod test {
         // Verify only that LockboxRef encodes the same way as main Lockbox
         // Set up crypto
         use std::ops::Deref;
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
-        let to_send = crate::StreamKey::with_rng(&mut csprng);
-        let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+        let key = crate::StreamKey::new();
+        let to_send = crate::StreamKey::new();
+        let lockbox = to_send.export_for_stream(&key).unwrap();
         // Encode & check
         let json1 = serde_json::to_string(&lockbox).unwrap();
         let lockbox_ref: &StreamLockboxRef = lockbox.deref();
@@ -1437,10 +1427,9 @@ mod test {
     #[test]
     fn bincode_stream_lockbox() {
         // Set up crypto
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
-        let to_send = crate::StreamKey::with_rng(&mut csprng);
-        let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+        let key = crate::StreamKey::new();
+        let to_send = crate::StreamKey::new();
+        let lockbox = to_send.export_for_stream(&key).unwrap();
         // Encode
         let bin = bincode::serialize(&lockbox).unwrap();
         println!("Original Lockbox: {:x?}", lockbox);
@@ -1455,10 +1444,9 @@ mod test {
     fn bincode_stream_lockbox_ref() {
         // Set up crypto
         use std::ops::Deref;
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
-        let to_send = crate::StreamKey::with_rng(&mut csprng);
-        let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+        let key = crate::StreamKey::new();
+        let to_send = crate::StreamKey::new();
+        let lockbox = to_send.export_for_stream(&key).unwrap();
         // Encode
         let lockbox_ref: &StreamLockboxRef = lockbox.deref();
         let bin = bincode::serialize(lockbox_ref).unwrap();
@@ -1472,10 +1460,9 @@ mod test {
 
     #[test]
     fn serde_json_lock_lockbox() {
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
-        let to_send = crate::LockKey::with_rng(&mut csprng);
-        let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+        let key = crate::StreamKey::new();
+        let to_send = crate::LockKey::new();
+        let lockbox = to_send.export_for_stream(&key).unwrap();
 
         let json = serde_json::to_string(&lockbox).unwrap();
         println!("{}", json);
@@ -1490,10 +1477,9 @@ mod test {
         // Verify only that LockboxRef encodes the same way as main Lockbox
         // Set up crypto
         use std::ops::Deref;
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
-        let to_send = crate::LockKey::with_rng(&mut csprng);
-        let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+        let key = crate::StreamKey::new();
+        let to_send = crate::LockKey::new();
+        let lockbox = to_send.export_for_stream(&key).unwrap();
         // Encode & check
         let json1 = serde_json::to_string(&lockbox).unwrap();
         let lockbox_ref: &LockLockboxRef = lockbox.deref();
@@ -1504,10 +1490,9 @@ mod test {
     #[test]
     fn bincode_lock_lockbox() {
         // Set up crypto
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
-        let to_send = crate::LockKey::with_rng(&mut csprng);
-        let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+        let key = crate::StreamKey::new();
+        let to_send = crate::LockKey::new();
+        let lockbox = to_send.export_for_stream(&key).unwrap();
         // Encode
         let bin = bincode::serialize(&lockbox).unwrap();
         println!("Original Lockbox: {:x?}", lockbox);
@@ -1522,10 +1507,9 @@ mod test {
     fn bincode_lock_lockbox_ref() {
         // Set up crypto
         use std::ops::Deref;
-        let mut csprng = rand::rngs::OsRng {};
-        let key = crate::StreamKey::with_rng(&mut csprng);
-        let to_send = crate::LockKey::with_rng(&mut csprng);
-        let lockbox = to_send.export_for_stream(&mut csprng, &key).unwrap();
+        let key = crate::StreamKey::new();
+        let to_send = crate::LockKey::new();
+        let lockbox = to_send.export_for_stream(&key).unwrap();
         // Encode
         let lockbox_ref: &LockLockboxRef = lockbox.deref();
         let bin = bincode::serialize(lockbox_ref).unwrap();

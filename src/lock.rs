@@ -17,15 +17,14 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! // Make a new temporary key
-//! let mut csprng = rand::rngs::OsRng {};
-//! let key = LockKey::with_rng(&mut csprng);
+//! let key = LockKey::new();
 //! let id = key.id().clone();
 //!
 //! println!("LockId(Base58): {}", key.id());
 //!
 //! // Encrypt some data with the public ID, then turn it into a byte vector
 //! let data = b"I am sensitive information, about to be encrypted";
-//! let lockbox = id.encrypt_data(&mut csprng, data.as_ref());
+//! let lockbox = id.encrypt_data(data.as_ref());
 //! let mut encoded = Vec::new();
 //! encoded.extend_from_slice(lockbox.as_bytes());
 //!
@@ -108,8 +107,7 @@ pub(crate) fn lock_eph_size(_version: u8) -> usize {
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// // Make a new temporary key
-/// let mut csprng = rand::rngs::OsRng {};
-/// let key = LockKey::with_rng(&mut csprng);
+/// let key = LockKey::new();
 /// let id = key.id().clone();
 /// println!("LockId(Base58): {}", key.id());
 ///
@@ -117,7 +115,7 @@ pub(crate) fn lock_eph_size(_version: u8) -> usize {
 /// // Wait for encrypted data to show up
 /// // ...
 /// # let data = b"I am sensitive information, about to be encrypted";
-/// # let lockbox = id.encrypt_data(&mut csprng, data.as_ref());
+/// # let lockbox = id.encrypt_data(data.as_ref());
 /// # let mut received = Vec::new();
 /// # received.extend_from_slice(lockbox.as_bytes());
 ///
@@ -209,9 +207,18 @@ impl LockKey {
         self.interface.decrypt_data(lockbox)
     }
 
+    /// Export the signing key in a `LockLockbox`, with `receive_lock` as the recipient. If
+    /// the key cannot be exported, this should return None.
+    pub fn export_for_lock(
+        &self,
+        lock: &LockId,
+    ) -> Option<LockLockbox> {
+        self.interface.self_export_lock(&mut rand_core::OsRng, lock)
+    }
+
     /// Export the signing key in an `LockLockbox`, with `receive_lock` as the recipient. If
     /// the key cannot be exported, this should return None.
-    pub fn export_for_lock<R: CryptoRng + RngCore>(
+    pub fn export_for_lock_with_rng<R: CryptoRng + RngCore>(
         &self,
         csprng: &mut R,
         lock: &LockId,
@@ -219,12 +226,25 @@ impl LockKey {
         self.interface.self_export_lock(csprng, lock)
     }
 
+    #[cfg(feature = "getrandom")]
     /// Export the private key in a `LockLockbox`, with `receive_stream` as the recipient. If
     /// the key cannot be exported, this should return None. Additionally, if the underlying
     /// implementation does not allow moving the raw key into memory (i.e. it cannot call
     /// [`StreamInterface::encrypt`](crate::stream::StreamInterface::encrypt) or
     /// [`lock_id_encrypt`](lock_id_encrypt)) then None can also be returned.
-    pub fn export_for_stream<R: CryptoRng + RngCore>(
+    pub fn export_for_stream(
+        &self,
+        stream: &StreamKey,
+    ) -> Option<LockLockbox> {
+        self.interface.self_export_stream(&mut rand_core::OsRng, stream)
+    }
+
+    /// Export the private key in a `LockLockbox`, with `receive_stream` as the recipient. If
+    /// the key cannot be exported, this should return None. Additionally, if the underlying
+    /// implementation does not allow moving the raw key into memory (i.e. it cannot call
+    /// [`StreamInterface::encrypt`](crate::stream::StreamInterface::encrypt) or
+    /// [`lock_id_encrypt`](lock_id_encrypt)) then None can also be returned.
+    pub fn export_for_stream_with_rng<R: CryptoRng + RngCore>(
         &self,
         csprng: &mut R,
         stream: &StreamKey,
@@ -298,8 +318,7 @@ pub trait LockInterface {
 /// ```
 /// # use fog_crypto::lock::*;
 /// # use fog_crypto::lockbox::*;
-/// # let mut csprng = rand::rngs::OsRng {};
-/// # let key = LockKey::with_rng(&mut csprng);
+/// # let key = LockKey::new();
 /// # let id = key.id().clone();
 ///
 /// // We've been given a LockId that we're sending encrypted data to.
@@ -307,7 +326,7 @@ pub trait LockInterface {
 ///
 /// // Encrypt some data for that LockId
 /// let data = b"I am sensitive information, about to be encrypted";
-/// let lockbox = id.encrypt_data(&mut csprng, data.as_ref());
+/// let lockbox = id.encrypt_data(data.as_ref());
 ///
 /// // The lockbox can be encoded onto a vec or used as raw bytes.
 /// let mut to_send = Vec::new();
@@ -319,9 +338,16 @@ pub struct LockId {
 }
 
 impl LockId {
+
+    #[cfg(feature = "getrandom")]
+    /// Encrypt a byte slice into a `DataLockbox`.
+    pub fn encrypt_data(&self, content: &[u8]) -> DataLockbox {
+        self.encrypt_data_with_rng(&mut rand_core::OsRng, content)
+    }
+
     /// Encrypt a byte slice into a `DataLockbox`. Requires a cryptographic RNG to generate the
     /// needed nonce.
-    pub fn encrypt_data<R>(&self, csprng: &mut R, content: &[u8]) -> DataLockbox
+    pub fn encrypt_data_with_rng<R>(&self, csprng: &mut R, content: &[u8]) -> DataLockbox
     where
         R: CryptoRng + RngCore,
     {
@@ -519,8 +545,8 @@ impl Default for BareLockKey {
 
 impl BareLockKey {
 
-    /// Generate a random new key.
     #[cfg(feature = "getrandom")]
+    /// Generate a random new key.
     pub fn new() -> Self {
         let key = x25519_dalek::StaticSecret::random();
         let id = LockId {
@@ -960,12 +986,11 @@ mod tests {
 
     fn setup_data() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
-        let mut csprng = rand::rngs::OsRng;
-        let key = LockKey::with_rng(&mut csprng);
+        let key = LockKey::new();
         let message = b"I am a test message, going undercover";
 
         // Encrypt
-        let lockbox = key.id().encrypt_data(&mut csprng, message);
+        let lockbox = key.id().encrypt_data(message);
         let recipient = LockboxRecipient::LockId(key.id().clone());
         assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
@@ -1058,12 +1083,11 @@ mod tests {
 
     fn setup_id() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
-        let mut csprng = rand::rngs::OsRng;
-        let key = LockKey::with_rng(&mut csprng);
-        let to_send = IdentityKey::with_rng(&mut csprng);
+        let key = LockKey::new();
+        let to_send = IdentityKey::new();
 
         // Encrypt
-        let lockbox = to_send.export_for_lock(&mut csprng, key.id()).unwrap();
+        let lockbox = to_send.export_for_lock(key.id()).unwrap();
         let recipient = LockboxRecipient::LockId(key.id().clone());
         assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
@@ -1213,12 +1237,11 @@ mod tests {
 
     fn setup_lock_stream() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
-        let mut csprng = rand::rngs::OsRng;
-        let key = LockKey::with_rng(&mut csprng);
-        let to_send = StreamKey::with_rng(&mut csprng);
+        let key = LockKey::new();
+        let to_send = StreamKey::new();
 
         // Encrypt
-        let lockbox = to_send.export_for_lock(&mut csprng, key.id()).unwrap();
+        let lockbox = to_send.export_for_lock(key.id()).unwrap();
         let recipient = LockboxRecipient::LockId(key.id().clone());
         assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
@@ -1368,12 +1391,11 @@ mod tests {
 
     fn setup_lock() -> (Vec<u8>, impl Fn(&[u8]) -> bool, impl Fn(&[u8]) -> bool) {
         // Setup
-        let mut csprng = rand::rngs::OsRng;
-        let key = LockKey::with_rng(&mut csprng);
-        let to_send = LockKey::with_rng(&mut csprng);
+        let key = LockKey::new();
+        let to_send = LockKey::new();
 
         // Encrypt
-        let lockbox = to_send.export_for_lock(&mut csprng, key.id()).unwrap();
+        let lockbox = to_send.export_for_lock(key.id()).unwrap();
         let recipient = LockboxRecipient::LockId(key.id().clone());
         assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());

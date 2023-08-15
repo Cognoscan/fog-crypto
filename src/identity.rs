@@ -198,9 +198,19 @@ impl IdentityKey {
         1 + V1_IDENTITY_SIGN_SIZE + self.id().size()
     }
 
+    #[cfg(feature = "getrandom")]
     /// Pack this key into a `Lockbox`, meant for the recipient specified by `lock`. Returns None if
     /// this key cannot be exported.
-    pub fn export_for_lock<R: CryptoRng + RngCore>(
+    pub fn export_for_lock(
+        &self,
+        lock: &LockId,
+    ) -> Option<IdentityLockbox> {
+        self.interface.self_export_lock(&mut rand_core::OsRng, lock)
+    }
+
+    /// Pack this key into a `Lockbox`, meant for the recipient specified by `lock`. Returns None if
+    /// this key cannot be exported.
+    pub fn export_for_lock_with_rng<R: CryptoRng + RngCore>(
         &self,
         csprng: &mut R,
         lock: &LockId,
@@ -208,9 +218,19 @@ impl IdentityKey {
         self.interface.self_export_lock(csprng, lock)
     }
 
+    #[cfg(feature = "getrandom")]
     /// Pack this key into a `Lockbox`, meant for the recipient specified by `stream`. Returns None
     /// if this key cannot be exported.
-    pub fn export_for_stream<R: CryptoRng + RngCore>(
+    pub fn export_for_stream(
+        &self,
+        stream: &StreamKey,
+    ) -> Option<IdentityLockbox> {
+        self.interface.self_export_stream(&mut rand_core::OsRng, stream)
+    }
+
+    /// Pack this key into a `Lockbox`, meant for the recipient specified by `stream`. Returns None
+    /// if this key cannot be exported.
+    pub fn export_for_stream_with_rng<R: CryptoRng + RngCore>(
         &self,
         csprng: &mut R,
         stream: &StreamKey,
