@@ -425,7 +425,16 @@ pub trait SignInterface {
 /// strongly preferred. This exists only so raw signing keys can be passed out
 /// without having a target [`LockKey`][crate::lock::LockKey] or [`StreamKey`] -
 /// a specialized requirement needed to implement things like invite tokens.
+#[derive(Clone)]
 pub struct BareIdKey { id: Identity, inner: ed25519_dalek::SigningKey, }
+
+impl std::fmt::Debug for BareIdKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BareIdKey")
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
+}
 
 #[cfg(feature = "getrandom")]
 impl Default for BareIdKey {
