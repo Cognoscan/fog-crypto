@@ -492,6 +492,10 @@ impl BareIdKey {
         bs58::encode(&buf).into_string()
     }
 
+    pub fn size(&self) -> usize {
+        1 + ed25519_dalek::SECRET_KEY_LENGTH
+    }
+
     /// Encode the raw key, prepended with the version byte. The output vector must be either
     /// zeroized or encrypted before being dropped.
     pub fn encode_vec(&self, buf: &mut Vec<u8>) {
