@@ -255,6 +255,12 @@ impl fmt::Debug for IdentityKey {
     }
 }
 
+impl<T: SignInterface + 'static> From<T> for IdentityKey {
+    fn from(value: T) -> Self {
+        Self::from_interface(Arc::new(value))
+    }
+}
+
 /// An Identity, wrapping a public signing key.
 ///
 /// This is useful as an identifier of who has created a given signature.
@@ -436,6 +442,13 @@ impl std::fmt::Debug for BareIdKey {
     }
 }
 
+impl fmt::Display for BareIdKey {
+    /// Display as a base58-encoded string.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.to_base58())
+    }
+}
+
 #[cfg(feature = "getrandom")]
 impl Default for BareIdKey {
     fn default() -> Self {
@@ -541,6 +554,43 @@ impl TryFrom<&[u8]> for BareIdKey {
         })
     }
 }
+
+impl fmt::LowerHex for BareIdKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut buf = Vec::new();
+        self.encode_vec(&mut buf);
+        for byte in buf.iter() {
+            write!(f, "{:x}", byte)?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::UpperHex for BareIdKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut buf = Vec::new();
+        self.encode_vec(&mut buf);
+        for byte in buf.iter() {
+            write!(f, "{:X}", byte)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::cmp::PartialEq for BareIdKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.to_bytes() == other.inner.to_bytes()
+    }
+}
+
+impl std::cmp::Eq for BareIdKey {}
+
+impl std::hash::Hash for BareIdKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.inner.to_bytes().hash(state);
+    }
+}
+
 
 impl SignInterface for BareIdKey {
     fn sign(&self, hash: &Hash) -> Signature {

@@ -294,6 +294,12 @@ impl fmt::Display for StreamKey {
     }
 }
 
+impl<T: StreamInterface + 'static> From<T> for StreamKey {
+    fn from(value: T) -> Self {
+        Self::from_interface(Arc::new(value))
+    }
+}
+
 /// A symmetric encryption/decryption interface, implemented by anything that can hold a symmetric
 /// encryption key.
 ///

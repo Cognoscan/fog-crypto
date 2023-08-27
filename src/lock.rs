@@ -269,6 +269,12 @@ impl fmt::Display for LockKey {
     }
 }
 
+impl<T: LockInterface + 'static> From<T> for LockKey {
+    fn from(value: T) -> Self {
+        Self::from_interface(Arc::new(value))
+    }
+}
+
 /// A decryption interface, implemented by anything that can hold a private cryptographic
 /// decryption key.
 ///
