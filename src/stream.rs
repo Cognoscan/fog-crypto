@@ -345,9 +345,7 @@ pub trait StreamInterface: Sync + Send {
     /// Export the symmetric key in a `StreamLockbox`, with `receive_stream` as the recipient. If
     /// the key cannot be exported, this should return None. Additionally, if the underlying
     /// implementation does not allow moving the raw key into memory (i.e. it cannot call
-    /// [`StreamInterface::encrypt`] or
-    /// [`lock_id_encrypt`](crate::lock::lock_id_encrypt)) then None can also be
-    /// returned.
+    /// [`StreamInterface::encrypt`] or [`lock_id_encrypt`]) then None can also be returned.
     fn self_export_stream(
         &self,
         csprng: &mut dyn CryptoSrc,

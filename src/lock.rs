@@ -231,7 +231,7 @@ impl LockKey {
     /// the key cannot be exported, this should return None. Additionally, if the underlying
     /// implementation does not allow moving the raw key into memory (i.e. it cannot call
     /// [`StreamInterface::encrypt`](crate::stream::StreamInterface::encrypt) or
-    /// [`lock_id_encrypt`](lock_id_encrypt)) then None can also be returned.
+    /// [`lock_id_encrypt`]) then None can also be returned.
     pub fn export_for_stream(
         &self,
         stream: &StreamKey,
@@ -243,7 +243,7 @@ impl LockKey {
     /// the key cannot be exported, this should return None. Additionally, if the underlying
     /// implementation does not allow moving the raw key into memory (i.e. it cannot call
     /// [`StreamInterface::encrypt`](crate::stream::StreamInterface::encrypt) or
-    /// [`lock_id_encrypt`](lock_id_encrypt)) then None can also be returned.
+    /// [`lock_id_encrypt`]) then None can also be returned.
     pub fn export_for_stream_with_rng<R: CryptoRng + RngCore>(
         &self,
         csprng: &mut R,

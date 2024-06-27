@@ -18,44 +18,44 @@
 pub const FOG_TYPE_ENUM: &str = "_FogType";
 /// Enum variant name for `Time` Timestamp (used by fog-pack)
 pub const FOG_TYPE_ENUM_TIME_NAME: &str = "Time";
-/// Enum variant name for [`Hash`](crate::hash::Hash)
+/// Enum variant name for [`struct@Hash`]
 pub const FOG_TYPE_ENUM_HASH_NAME: &str = "Hash";
-/// Enum variant name for [`Identity`](crate::identity::Identity)
+/// Enum variant name for [`Identity`]
 pub const FOG_TYPE_ENUM_IDENTITY_NAME: &str = "Identity";
-/// Enum variant name for [`LockId`](crate::lock::LockId)
+/// Enum variant name for [`LockId`]
 pub const FOG_TYPE_ENUM_LOCK_ID_NAME: &str = "LockId";
-/// Enum variant name for [`StreamId`](crate::stream::StreamId)
+/// Enum variant name for [`StreamId`]
 pub const FOG_TYPE_ENUM_STREAM_ID_NAME: &str = "StreamId";
-/// Enum variant name for [`DataLockbox`](crate::lockbox::DataLockbox)
+/// Enum variant name for [`DataLockbox`]
 pub const FOG_TYPE_ENUM_DATA_LOCKBOX_NAME: &str = "DataLockbox";
-/// Enum variant name for [`IdentityLockbox`](crate::lockbox::IdentityLockbox)
+/// Enum variant name for [`IdentityLockbox`]
 pub const FOG_TYPE_ENUM_IDENTITY_LOCKBOX_NAME: &str = "IdentityLockbox";
-/// Enum variant name for [`StreamLockbox`](crate::lockbox::StreamLockbox)
+/// Enum variant name for [`StreamLockbox`]
 pub const FOG_TYPE_ENUM_STREAM_LOCKBOX_NAME: &str = "StreamLockbox";
-/// Enum variant name for [`LockLockbox`](crate::lockbox::LockLockbox)
+/// Enum variant name for [`LockLockbox`]
 pub const FOG_TYPE_ENUM_LOCK_LOCKBOX_NAME: &str = "LockLockbox";
-/// Enum variant name for [`BareIdKey`](crate::identity::BareIdKey)
+/// Enum variant name for [`BareIdKey`]
 pub const FOG_TYPE_ENUM_BARE_ID_KEY_NAME: &str = "BareIdKey";
 
 /// Enum variant index for `Time` Timestamp (used by fog-pack)
 pub const FOG_TYPE_ENUM_TIME_INDEX: u64 = 0;
-/// Enum variant index for [`Hash`](crate::hash::Hash)
+/// Enum variant index for [`struct@Hash`]
 pub const FOG_TYPE_ENUM_HASH_INDEX: u64 = 1;
-/// Enum variant index for [`Identity`](crate::identity::Identity)
+/// Enum variant index for [`Identity`]
 pub const FOG_TYPE_ENUM_IDENTITY_INDEX: u64 = 2;
-/// Enum variant index for [`LockId`](crate::lock::LockId)
+/// Enum variant index for [`LockId`]
 pub const FOG_TYPE_ENUM_LOCK_ID_INDEX: u64 = 3;
-/// Enum variant index for [`StreamId`](crate::stream::StreamId)
+/// Enum variant index for [`StreamId`]
 pub const FOG_TYPE_ENUM_STREAM_ID_INDEX: u64 = 4;
-/// Enum variant index for [`DataLockbox`](crate::lockbox::DataLockbox)
+/// Enum variant index for [`DataLockbox`]
 pub const FOG_TYPE_ENUM_DATA_LOCKBOX_INDEX: u64 = 5;
-/// Enum variant index for [`IdentityLockbox`](crate::lockbox::IdentityLockbox)
+/// Enum variant index for [`IdentityLockbox`]
 pub const FOG_TYPE_ENUM_IDENTITY_LOCKBOX_INDEX: u64 = 6;
-/// Enum variant index for [`StreamLockbox`](crate::lockbox::StreamLockbox)
+/// Enum variant index for [`StreamLockbox`]
 pub const FOG_TYPE_ENUM_STREAM_LOCKBOX_INDEX: u64 = 7;
-/// Enum variant index for [`LockLockbox`](crate::lockbox::LockLockbox)
+/// Enum variant index for [`LockLockbox`]
 pub const FOG_TYPE_ENUM_LOCK_LOCKBOX_INDEX: u64 = 8;
-/// Enum variant name for [`BareIdKey`](crate::identity::BareIdKey)
+/// Enum variant name for [`BareIdKey`]
 pub const FOG_TYPE_ENUM_BARE_ID_KEY_INDEX: u64 = 9;
 
 const VARIANTS: &[&str] = &[

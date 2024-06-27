@@ -1,9 +1,9 @@
 //! Cryptographic signatures.
 //!
 //! This module lets you create a signing [`IdentityKey`], which can be used to create a
-//! [`Signature`] for a given [`Hash`](crate::hash::Hash). Each `IdentityKey` has an associated
-//! [`Identity`], which may be freely shared. A `Signature` may be provided separate from the data
-//! or alongside it, and always includes the `Identity` of the signer.
+//! [`Signature`] for a given [`Hash`](struct@crate::hash::Hash). Each `IdentityKey` has an
+//! associated [`Identity`], which may be freely shared. A `Signature` may be provided separate from
+//! the data or alongside it, and always includes the `Identity` of the signer.
 //!
 //! All `IdentityKey` structs are backed by some struct that implements the [`SignInterface`] trait;
 //! this can be an in-memory private key, an interface to an OS-managed keystore, an interface to a
