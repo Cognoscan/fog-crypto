@@ -63,9 +63,9 @@
 //! and the 16-byte Poly1305 authentication tag.
 //!
 //! ```text
-//! +----------+----------+==========+==========+==========+==============+=====+
-//! | Version  |   Type   | SignKey  |  EphKey  |  Nonce   |  Ciphertext  | Tag |
-//! +----------+----------+==========+==========+==========+==============+=====+
+//! +----------+----------+=========+==========+==========+==============+=====+
+//! | Version  |   Type   | PubKey  |  EphKey  |  Nonce   |  Ciphertext  | Tag |
+//! +----------+----------+=========+==========+==========+==============+=====+
 //!
 //! +----------+----------+==========+==========+==============+=====+
 //! | Version  |   Type   | StreamId |  Nonce   |  Ciphertext  | Tag |
@@ -74,13 +74,37 @@
 //! - Version indicates what version of symmetric-key encryption was used for this lockbox.
 //! - Type indicates the lockbox type and recipient type. If bit 0 is cleared, the first format
 //!   (with SignKey & EphKey) is used. If bit 1 is set, the second format (with StreamId) is used.
-//! - SignKey is a LockId. This is a version byte followed by the encoded public key.
+//! - PubKey is a LockId. This is a version byte followed by the encoded public key.
 //! - EphKey is a raw public key, of the same version as SignKey.
-//! - StreamId is an identifier for the StreamKey that created the lockbox.
+//! - StreamId is an identifier for the StreamKey that created the lockbox, of the same version as
+//!   the lockbox itself.
 //! - Nonce is a random byte sequence matching the nonce length specified by the symmetric
 //!   encryption version used.
 //! - Ciphertext is the internal data, encrypted with the chosen algorithm.
 //! - Tag is the authentication tag produced using the chosen algorithm.
+//! 
+//! For lockbox version 1 with version 1 public/private keys, the field sizes are:
+//! 
+//! | Field      | Size (bytes) |
+//! | ---------- | ------------ |
+//! | Version    | 1            |
+//! | Type       | 1            |
+//! | PubKey     | 33           |
+//! | EphKey     | 32           |
+//! | Nonce      | 24           |
+//! | Ciphertext | Variable     |
+//! | Tag        | 16           |
+//! 
+//! For lockbox version 1 with a version 1 stream key, the field sizes are:
+//! 
+//! | Field      | Size (bytes) |
+//! | ---------- | ------------ |
+//! | Version    | 1            |
+//! | Type       | 1            |
+//! | StreamId   | 32           |
+//! | Nonce      | 24           |
+//! | Ciphertext | Variable     |
+//! | Tag        | 16           |
 //! ```
 //!
 //! In the AEAD construction, the additional data consists of every byte prior to the nonce.
@@ -88,7 +112,7 @@
 
 use crate::{
     lock::{lock_eph_size, lock_id_size, LockId},
-    stream::{stream_id_size, StreamId, MAX_STREAM_VERSION, MIN_STREAM_VERSION},
+    stream::{stream_raw_id_size, StreamId, MAX_STREAM_VERSION, MIN_STREAM_VERSION},
     CryptoError,
 };
 
@@ -924,7 +948,7 @@ impl LockboxRef {
         let nonce_len = lockbox_nonce_size(version);
         let boxtype = LockboxType::from_u8(self.inner[LOCKBOX_OFFSET_TYPE]).unwrap();
         if boxtype.is_for_stream() {
-            let id_len = stream_id_size(version);
+            let id_len = stream_raw_id_size(version);
             let additional_len = 2 + id_len; // 1 for lockbox version, 1 for lockbox type
             let (additional, inner) = self.inner.split_at(additional_len);
             let (nonce, ciphertext) = inner.split_at(nonce_len);
@@ -958,13 +982,14 @@ impl LockboxRef {
 
     /// Get the target recipient who should be able to decrypt the lockbox.
     fn recipient(&self) -> LockboxRecipient {
+        let lockbox_version = self.inner[LOCKBOX_OFFSET_VERSION];
         let boxtype = LockboxType::from_u8(self.inner[1]).unwrap();
-        let id_version = self.inner[2];
         if boxtype.is_for_stream() {
-            let id_len = stream_id_size(id_version);
+            let id_len = stream_raw_id_size(lockbox_version);
             let range = LOCKBOX_OFFSET_ID_VERSION..(LOCKBOX_OFFSET_ID_VERSION + id_len);
-            LockboxRecipient::StreamId(StreamId::try_from(&self.inner[range]).unwrap())
+            LockboxRecipient::StreamId(StreamId::from_parts(lockbox_version, &self.inner[range]))
         } else {
+            let id_version = self.inner[LOCKBOX_OFFSET_ID_VERSION];
             let id_len = lock_id_size(id_version);
             let range = LOCKBOX_OFFSET_ID_VERSION..(LOCKBOX_OFFSET_ID_VERSION + id_len);
             LockboxRecipient::LockId(LockId::try_from(&self.inner[range]).unwrap())
@@ -996,7 +1021,7 @@ impl LockboxRef {
             // Check the length. Must be at least long enough to hold the StreamId, Nonce, and
             // Tag. It is acceptable (if a bit silly) for the actual ciphertext to be of length
             // 0.
-            let id_len = stream_id_size(version);
+            let id_len = stream_raw_id_size(version);
             let nonce_len = lockbox_nonce_size(version);
             let tag_len = lockbox_tag_size(version);
             if parse.len() < (id_len + nonce_len + tag_len) {
@@ -1005,16 +1030,6 @@ impl LockboxRef {
                     expected: id_len + nonce_len + tag_len,
                     actual: parse.len(),
                 });
-            }
-            // Extract the StreamId
-            let (raw_id, _) = parse.split_at(id_len);
-            let id = StreamId::try_from(raw_id)?; // Verify that the ID is a valid one
-                                                  // Compare the StreamId & version byte. We can't use stream keys that differ from
-                                                  // the lockbox version because they're supposed to literally be the same algorithm!
-            if id.version() != version {
-                return Err(CryptoError::BadFormat(
-                    "Lockbox version didn't match Stream Id version",
-                ));
             }
             Ok((Self::new_ref(raw), boxtype))
         } else {

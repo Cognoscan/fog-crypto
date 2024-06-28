@@ -82,10 +82,10 @@ pub const MAX_STREAM_VERSION: u8 = 1;
 const V1_STREAM_ID_SIZE: usize = 32;
 const V1_STREAM_KEY_SIZE: usize = 32;
 
-/// Get expected size of StreamId for a given version. Version *must* be validated before calling
+/// Get expected size of raw StreamId for a given version. Version *must* be validated before calling
 /// this.
-pub(crate) fn stream_id_size(_version: u8) -> usize {
-    1 + V1_STREAM_ID_SIZE
+pub(crate) fn stream_raw_id_size(_version: u8) -> usize {
+    V1_STREAM_ID_SIZE
 }
 
 /// Stream Key that allows encrypting data into a `Lockbox` and decrypting it later.
@@ -536,9 +536,10 @@ impl StreamInterface for BareStreamKey {
         // Get the data lengths and allocate the vec
         let id = self.id();
         let version = id.version();
+        let id = id.raw_identifier();
         let tag_len = lockbox_tag_size(version);
         let nonce_len = lockbox_nonce_size(version);
-        let header_len = 2 + id.size();
+        let header_len = 2 + id.len();
         let len = header_len + nonce_len + content.len() + tag_len;
         let mut lockbox: Vec<u8> = Vec::with_capacity(len);
         let mut nonce = [0u8; crate::lockbox::V1_LOCKBOX_NONCE_SIZE];
@@ -547,7 +548,7 @@ impl StreamInterface for BareStreamKey {
         // Lockbox header & data
         lockbox.push(version);
         lockbox.push(lock_type.as_u8());
-        id.encode_vec(&mut lockbox);
+        lockbox.extend_from_slice(id);
         lockbox.extend_from_slice(nonce.as_ref());
         lockbox.extend_from_slice(content);
 
@@ -736,6 +737,15 @@ impl StreamId {
     pub fn size(&self) -> usize {
         self.inner.len()
     }
+
+    /// Construct an ID from base parts. Version & size must already be validated!
+    pub(crate) fn from_parts(version: u8, value: &[u8]) -> Self {
+        let mut inner = Vec::with_capacity(1 + V1_STREAM_ID_SIZE);
+        inner.push(version);
+        inner.extend_from_slice(value);
+        Self { inner }
+
+    }
 }
 
 impl TryFrom<&[u8]> for StreamId {
@@ -897,29 +907,25 @@ mod tests {
             enc[1] = (enc[1] + 1) & 0x7;
             assert!(!check_decode(&enc[..]));
         }
-        enc[1] = (enc[1] + 1) & 0x7; // 7th increment should still decode, but have bad recipient
-        assert!(check_decode(&enc[..]));
+        // 7th increment may or may not decode, as the lockbox type will be right. If the first byte
+        // of the StreamId is set to a valid Identity version number (eg. 1), then it will
+        // potentially decode but fail on decryption. So just check for decryption failure
+        enc[1] = (enc[1] + 1) & 0x7;
         assert!(!check_decrypt(&enc[..]));
         // Last increment should take us back to the valid value
         enc[1] = (enc[1] + 1) & 0x7;
         assert!(check_decrypt(&enc[..]));
     }
 
-    fn corrupt_id<F1, F2>(mut enc: Vec<u8>, check_decode: F1, check_decrypt: F2)
+    fn corrupt_id<F1, F2>(mut enc: Vec<u8>, _check_decode: F1, check_decrypt: F2)
     where
         F1: Fn(&[u8]) -> bool,
         F2: Fn(&[u8]) -> bool,
     {
-        // Identity corruption - 2 is ID version, 3 is first byte of ID
-        enc[2] = 0;
-        assert!(!check_decode(&enc[..]));
-        enc[2] = 2;
-        assert!(!check_decode(&enc[..]));
-        enc[2] = DEFAULT_STREAM_VERSION;
-        assert!(check_decrypt(&enc[..]));
-        enc[3] ^= 0xFF;
+        // Identity corruption - 2 is the first byte of the ID
+        enc[2] ^= 0xFF;
         assert!(!check_decrypt(&enc[..]));
-        enc[3] ^= 0xFF;
+        enc[2] ^= 0xFF;
         assert!(check_decrypt(&enc[..]));
     }
 
