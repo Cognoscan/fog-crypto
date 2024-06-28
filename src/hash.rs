@@ -191,7 +191,7 @@ impl fmt::Display for Hash {
 impl fmt::LowerHex for Hash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for byte in self.data.iter() {
-            write!(f, "{:x}", byte)?;
+            write!(f, "{:02x}", byte)?;
         }
         Ok(())
     }
@@ -200,7 +200,7 @@ impl fmt::LowerHex for Hash {
 impl fmt::UpperHex for Hash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for byte in self.data.iter() {
-            write!(f, "{:X}", byte)?;
+            write!(f, "{:02X}", byte)?;
         }
         Ok(())
     }

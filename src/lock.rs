@@ -460,7 +460,7 @@ impl fmt::Display for LockId {
 impl fmt::LowerHex for LockId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for byte in self.as_vec().iter() {
-            write!(f, "{:x}", byte)?;
+            write!(f, "{:02x}", byte)?;
         }
         Ok(())
     }
@@ -469,7 +469,7 @@ impl fmt::LowerHex for LockId {
 impl fmt::UpperHex for LockId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for byte in self.as_vec().iter() {
-            write!(f, "{:X}", byte)?;
+            write!(f, "{:02X}", byte)?;
         }
         Ok(())
     }

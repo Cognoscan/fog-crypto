@@ -782,7 +782,7 @@ impl fmt::Display for StreamId {
 impl fmt::LowerHex for StreamId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for byte in self.inner.iter() {
-            write!(f, "{:x}", byte)?;
+            write!(f, "{:02x}", byte)?;
         }
         Ok(())
     }
@@ -791,7 +791,7 @@ impl fmt::LowerHex for StreamId {
 impl fmt::UpperHex for StreamId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for byte in self.inner.iter() {
-            write!(f, "{:X}", byte)?;
+            write!(f, "{:02X}", byte)?;
         }
         Ok(())
     }

@@ -361,7 +361,7 @@ impl fmt::Display for Identity {
 impl fmt::LowerHex for Identity {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for byte in self.as_vec().iter() {
-            write!(f, "{:x}", byte)?;
+            write!(f, "{:02x}", byte)?;
         }
         Ok(())
     }
@@ -370,7 +370,7 @@ impl fmt::LowerHex for Identity {
 impl fmt::UpperHex for Identity {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for byte in self.as_vec().iter() {
-            write!(f, "{:X}", byte)?;
+            write!(f, "{:02X}", byte)?;
         }
         Ok(())
     }
@@ -560,7 +560,7 @@ impl fmt::LowerHex for BareIdKey {
         let mut buf = Vec::new();
         self.encode_vec(&mut buf);
         for byte in buf.iter() {
-            write!(f, "{:x}", byte)?;
+            write!(f, "{:02x}", byte)?;
         }
         Ok(())
     }
@@ -571,7 +571,7 @@ impl fmt::UpperHex for BareIdKey {
         let mut buf = Vec::new();
         self.encode_vec(&mut buf);
         for byte in buf.iter() {
-            write!(f, "{:X}", byte)?;
+            write!(f, "{:02X}", byte)?;
         }
         Ok(())
     }
