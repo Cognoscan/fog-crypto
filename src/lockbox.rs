@@ -111,10 +111,12 @@
 //!
 
 use crate::{
-    lock::{lock_eph_size, lock_id_size, LockId}, stream::{stream_raw_id_size, StreamId, MAX_STREAM_VERSION, MIN_STREAM_VERSION}, CryptoError, MAX_LOCK_VERSION, MIN_LOCK_VERSION
+    lock::lock_id_size,
+    stream::{MAX_STREAM_VERSION, MIN_STREAM_VERSION},
+    CryptoError, VersionType, MAX_LOCK_VERSION, MIN_LOCK_VERSION,
 };
 
-use std::{convert::TryFrom, fmt};
+use std::fmt;
 
 pub(crate) const V1_LOCKBOX_NONCE_SIZE: usize = 24;
 pub(crate) const V1_LOCKBOX_TAG_SIZE: usize = 16;
@@ -845,7 +847,7 @@ impl fmt::Debug for DataLockboxRef {
 }
 
 /// A lockbox byte stream, sliced into its component parts
-pub(crate) struct LockboxParts<'a> {
+pub struct LockboxParts<'a> {
     /// The parsed lockbox type
     pub ty: LockboxType,
     /// The entire "additional data" portion - every byte prior to the tag
@@ -950,7 +952,12 @@ impl LockboxRef {
             actual: 0,
         })?;
         if version < MIN_STREAM_VERSION || version > MAX_STREAM_VERSION {
-            return Err(CryptoError::UnsupportedVersion(version));
+            return Err(CryptoError::UnsupportedVersion {
+                ty: VersionType::SymmetricKey,
+                version,
+                min: MIN_STREAM_VERSION,
+                max: MAX_STREAM_VERSION,
+            });
         }
         let (&boxtype, parse) = parse.split_first().ok_or(CryptoError::BadLength {
             step: "get lockbox type",
@@ -967,7 +974,12 @@ impl LockboxRef {
                 actual: 0,
             })?;
             if id_version < MIN_LOCK_VERSION || id_version > MAX_LOCK_VERSION {
-                return Err(CryptoError::UnsupportedVersion(id_version));
+                return Err(CryptoError::UnsupportedVersion {
+                    ty: VersionType::PublicKey,
+                    version: id_version,
+                    min: MIN_LOCK_VERSION,
+                    max: MAX_LOCK_VERSION,
+                });
             }
             lock_id_size(id_version)
         };

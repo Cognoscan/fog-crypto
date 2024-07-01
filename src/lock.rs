@@ -62,10 +62,7 @@
 //!
 
 use crate::{
-    identity::{BareIdKey, IdentityKey},
-    lockbox::*,
-    stream::{stream_key_encrypt, BareStreamKey, StreamKey},
-    CryptoError, CryptoSrc,
+    error::VersionType, identity::{BareIdKey, IdentityKey}, lockbox::*, stream::{stream_key_encrypt, BareStreamKey, StreamKey}, CryptoError, CryptoSrc
 };
 
 use blake2::{Blake2b512, Digest};
@@ -89,10 +86,6 @@ const V1_LOCK_ID_SIZE: usize = 32; // Size of public key
 const V1_LOCK_KEY_SIZE: usize = 32; // Size of static secret key
 
 pub(crate) fn lock_id_size(_version: u8) -> usize {
-    1 + V1_LOCK_ID_SIZE
-}
-
-pub(crate) fn lock_eph_size(_version: u8) -> usize {
     1 + V1_LOCK_ID_SIZE
 }
 
@@ -414,7 +407,12 @@ impl TryFrom<&[u8]> for LockId {
             actual: 0,
         })?;
         if version != 1u8 {
-            return Err(CryptoError::UnsupportedVersion(version));
+            return Err(CryptoError::UnsupportedVersion {
+                ty: VersionType::PublicKey,
+                version,
+                min: MIN_LOCK_VERSION,
+                max: MAX_LOCK_VERSION,
+            });
         }
         if data.len() != V1_LOCK_ID_SIZE {
             return Err(CryptoError::BadLength {
@@ -570,7 +568,12 @@ impl BareLockKey {
         R: CryptoRng + RngCore,
     {
         if (version < MIN_LOCK_VERSION) || (version > MAX_LOCK_VERSION) {
-            return Err(CryptoError::UnsupportedVersion(version));
+            return Err(CryptoError::UnsupportedVersion {
+                ty: VersionType::PublicKey,
+                version,
+                min: MIN_LOCK_VERSION,
+                max: MAX_LOCK_VERSION,
+            });
         }
 
         let key = x25519_dalek::StaticSecret::random_from_rng(csprng);
@@ -651,11 +654,13 @@ impl TryFrom<&[u8]> for BareLockKey {
             actual: 0,
         })?;
         let version = *version;
-        if version < MIN_LOCK_VERSION {
-            return Err(CryptoError::OldVersion(version));
-        }
-        if version > MAX_LOCK_VERSION {
-            return Err(CryptoError::UnsupportedVersion(version));
+        if version < MIN_LOCK_VERSION || version > MAX_LOCK_VERSION {
+            return Err(CryptoError::UnsupportedVersion {
+                ty: VersionType::PublicKey,
+                version,
+                min: MIN_LOCK_VERSION,
+                max: MAX_LOCK_VERSION,
+            });
         }
 
         // Copy the private key, wrap in StaticSecret, and clear out the temporary value.
@@ -764,10 +769,14 @@ mod tests {
         let key = LockKey::with_rng_and_version(&mut csprng, DEFAULT_LOCK_VERSION).unwrap();
         assert_eq!(key.version(), DEFAULT_LOCK_VERSION);
         let result = LockKey::with_rng_and_version(&mut csprng, 99u8);
-        if let Err(CryptoError::UnsupportedVersion(99u8)) = result {
-        } else {
+        let Err(CryptoError::UnsupportedVersion {
+            ty: VersionType::PublicKey,
+            version: 99u8,
+            min: MIN_LOCK_VERSION,
+            max: MAX_LOCK_VERSION,
+        }) = result else {
             panic!("Didn't get expected error on with_rng_and_version");
-        }
+        };
     }
 
     #[test]

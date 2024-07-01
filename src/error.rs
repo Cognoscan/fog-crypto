@@ -1,11 +1,35 @@
+use std::fmt;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum VersionType {
+    Hash,
+    Signing,
+    SymmetricKey,
+    PublicKey,
+}
+
+impl fmt::Display for VersionType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            VersionType::Hash => f.write_str("Hash"),
+            VersionType::Signing => f.write_str("Signing"),
+            VersionType::SymmetricKey => f.write_str("Symmetric Key"),
+            VersionType::PublicKey => f.write_str("Public Key"),
+        } 
+    }
+}
+
 /// Possible cryptographic submodule error conditions.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum CryptoError {
     /// Crypto primitive uses a version this library doesn't recognize (or one it no longer
     /// accepts).
-    UnsupportedVersion(u8),
-    /// Crypto primitive uses a version that's too old, and deemed unsafe to use.
-    OldVersion(u8),
+    UnsupportedVersion {
+        ty: VersionType,
+        version: u8,
+        min: u8,
+        max: u8,
+    },
     /// Crypto system was unable to decrypt the contents of a Lockbox.
     DecryptFailed,
     /// The provided data for wasn't the expected length.
@@ -33,11 +57,8 @@ pub enum CryptoError {
 impl CryptoError {
     pub fn serde_err(&self) -> String {
         match *self {
-            CryptoError::UnsupportedVersion(version) => {
-                format!("crypto version ({}) not supported.", version)
-            }
-            CryptoError::OldVersion(version) => {
-                format!("crypto version ({}) old and deemed unsafe", version)
+            CryptoError::UnsupportedVersion { ty, version, min, max } => {
+                format!("crypto version ({version}) not supported for {ty} algorithm. Valid range is {min} to {max}")
             }
             CryptoError::DecryptFailed => "could not decrypt with key".to_string(),
             CryptoError::BadLength {
@@ -57,15 +78,11 @@ impl CryptoError {
     }
 }
 
-use std::fmt;
 impl fmt::Display for CryptoError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            CryptoError::UnsupportedVersion(version) => {
-                write!(f, "Chosen crypto version ({}) not supported.", version)
-            }
-            CryptoError::OldVersion(version) => {
-                write!(f, "Crypto version ({}) is old and deemed unsafe.", version)
+            CryptoError::UnsupportedVersion { ty, version, min, max } => {
+                write!(f, "crypto version ({version}) not supported for {ty} algorithm. Valid range is {min} to {max}")
             }
             CryptoError::DecryptFailed => write!(f, "Could not decrypt with key"),
             CryptoError::BadLength {

@@ -55,7 +55,7 @@ use crate::{
     identity::{BareIdKey, IdentityKey},
     lock::{lock_id_encrypt, BareLockKey, LockId, LockKey},
     lockbox::*,
-    CryptoError, CryptoSrc,
+    CryptoError, CryptoSrc, VersionType,
 };
 
 use rand_core::{CryptoRng, RngCore};
@@ -81,12 +81,6 @@ pub const MAX_STREAM_VERSION: u8 = 1;
 
 const V1_STREAM_ID_SIZE: usize = 32;
 const V1_STREAM_KEY_SIZE: usize = 32;
-
-/// Get expected size of raw StreamId for a given version. Version *must* be validated before calling
-/// this.
-pub(crate) fn stream_raw_id_size(_version: u8) -> usize {
-    V1_STREAM_ID_SIZE
-}
 
 /// Stream Key that allows encrypting data into a `Lockbox` and decrypting it later.
 ///
@@ -413,7 +407,12 @@ impl BareStreamKey {
         R: CryptoRng + RngCore,
     {
         if (version < MIN_STREAM_VERSION) || (version > MAX_STREAM_VERSION) {
-            return Err(CryptoError::UnsupportedVersion(version));
+            return Err(CryptoError::UnsupportedVersion {
+                ty: VersionType::SymmetricKey,
+                version,
+                min: MIN_STREAM_VERSION,
+                max: MAX_STREAM_VERSION,
+            });
         }
 
         let mut key = [0; V1_STREAM_KEY_SIZE];
@@ -475,11 +474,13 @@ impl TryFrom<&[u8]> for BareStreamKey {
             actual: 0,
         })?;
         let version = *version;
-        if version < MIN_STREAM_VERSION {
-            return Err(CryptoError::OldVersion(version));
-        }
-        if version > MAX_STREAM_VERSION {
-            return Err(CryptoError::UnsupportedVersion(version));
+        if version < MIN_STREAM_VERSION || version > MAX_STREAM_VERSION {
+            return Err(CryptoError::UnsupportedVersion {
+                ty: VersionType::SymmetricKey,
+                version,
+                min: MIN_STREAM_VERSION,
+                max: MAX_STREAM_VERSION,
+            });
         }
 
         if key.len() != V1_STREAM_KEY_SIZE {
@@ -527,7 +528,6 @@ impl StreamInterface for BareStreamKey {
         // Get the data lengths and allocate the vec
         let id = self.id();
         let version = id.version();
-        let id = id.raw_identifier();
         let tag_len = lockbox_tag_size(version);
         let nonce_len = lockbox_nonce_size(version);
         let header_len = 2 + nonce_len;
@@ -689,15 +689,6 @@ impl StreamId {
     pub fn size(&self) -> usize {
         self.inner.len()
     }
-
-    /// Construct an ID from base parts. Version & size must already be validated!
-    pub(crate) fn from_parts(version: u8, value: &[u8]) -> Self {
-        let mut inner = Vec::with_capacity(1 + V1_STREAM_ID_SIZE);
-        inner.push(version);
-        inner.extend_from_slice(value);
-        Self { inner }
-
-    }
 }
 
 impl TryFrom<&[u8]> for StreamId {
@@ -771,10 +762,14 @@ mod tests {
         let key = StreamKey::with_rng_and_version(&mut csprng, DEFAULT_STREAM_VERSION).unwrap();
         assert_eq!(key.version(), DEFAULT_STREAM_VERSION);
         let result = StreamKey::with_rng_and_version(&mut csprng, 99u8);
-        if let Err(CryptoError::UnsupportedVersion(99u8)) = result {
-        } else {
+        let Err(CryptoError::UnsupportedVersion {
+            ty: VersionType::SymmetricKey,
+            version: 99u8,
+            min: MIN_STREAM_VERSION,
+            max: MAX_STREAM_VERSION,
+        }) = result else {
             panic!("Didn't get expected error on new_temp_with_version");
-        }
+        };
     }
 
     #[test]

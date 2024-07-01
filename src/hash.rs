@@ -20,15 +20,14 @@
 //! println!("Hash(Base58): {}", hash);
 //! ```
 
-use crate::error::CryptoError;
+use crate::error::{CryptoError, VersionType};
 
-use std::{convert::{TryFrom, TryInto}, fmt};
-
-use blake2::{
-    Digest,
-    Blake2b,
-    digest::consts::U32,
+use std::{
+    convert::{TryFrom, TryInto},
+    fmt,
 };
+
+use blake2::{digest::consts::U32, Blake2b, Digest};
 
 use subtle::{Choice, ConstantTimeEq};
 
@@ -121,16 +120,19 @@ impl TryFrom<&[u8]> for Hash {
 
         // Version check
         if version < MIN_HASH_VERSION || version > MAX_HASH_VERSION {
-            return Err(CryptoError::UnsupportedVersion(version));
+            return Err(CryptoError::UnsupportedVersion {
+                ty: VersionType::Hash,
+                version,
+                min: MIN_HASH_VERSION,
+                max: MAX_HASH_VERSION,
+            });
         }
 
         // Length check
-        let data: [u8; MAX_HASH_LEN] = value.try_into().map_err(|_| {
-            CryptoError::BadLength {
-                step: "get hash digest (with version)",
-                actual: value.len(),
-                expected: 1 + V1_DIGEST_SIZE,
-            }
+        let data: [u8; MAX_HASH_LEN] = value.try_into().map_err(|_| CryptoError::BadLength {
+            step: "get hash digest (with version)",
+            actual: value.len(),
+            expected: 1 + V1_DIGEST_SIZE,
         })?;
 
         Ok(Self { data })
@@ -243,7 +245,12 @@ impl HashState {
     /// one version. Fails if the version isn't supported.
     pub fn with_version(version: u8) -> Result<HashState, CryptoError> {
         if version > MAX_HASH_VERSION || version < MIN_HASH_VERSION {
-            return Err(CryptoError::UnsupportedVersion(version));
+            return Err(CryptoError::UnsupportedVersion {
+                ty: VersionType::Hash,
+                version,
+                min: MIN_HASH_VERSION,
+                max: MAX_HASH_VERSION,
+            });
         }
         let state = V1Blake::new();
         Ok(HashState { state })
@@ -336,14 +343,14 @@ mod tests {
     #[test]
     fn edge_cases() {
         match Hash::with_version([1, 2], 0).unwrap_err() {
-            CryptoError::UnsupportedVersion(v) => {
-                assert_eq!(v, 0, "UnsupportedVersion should have been 0");
+            CryptoError::UnsupportedVersion { version, .. } => {
+                assert_eq!(version, 0, "UnsupportedVersion should have been 0");
             }
             _ => panic!("New hash should always fail on version 0"),
         };
         match HashState::with_version(0).unwrap_err() {
-            CryptoError::UnsupportedVersion(v) => {
-                assert_eq!(v, 0, "UnsupportedVersion should have been 0");
+            CryptoError::UnsupportedVersion { version, .. } => {
+                assert_eq!(version, 0, "UnsupportedVersion should have been 0");
             }
             _ => panic!("HashState should always fail on version 0"),
         };

@@ -83,7 +83,7 @@ use crate::{
     lock::LockId,
     lockbox::*,
     stream::StreamKey,
-    CryptoError, CryptoSrc,
+    CryptoError, CryptoSrc, VersionType,
 };
 
 use rand_core::{CryptoRng, RngCore};
@@ -144,11 +144,11 @@ impl Default for IdentityKey {
 }
 
 impl IdentityKey {
-
     /// Create a new `IdentityKey`, given a wrapped object that can implement a
     /// SignInterface.
     pub fn from_interface(interface: Arc<dyn SignInterface>) -> IdentityKey {
-    IdentityKey { interface } }
+        IdentityKey { interface }
+    }
 
     /// Generate a temporary `IdentityKey` that exists in program memory.
     #[cfg(feature = "getrandom")]
@@ -201,10 +201,7 @@ impl IdentityKey {
     #[cfg(feature = "getrandom")]
     /// Pack this key into a `Lockbox`, meant for the recipient specified by `lock`. Returns None if
     /// this key cannot be exported.
-    pub fn export_for_lock(
-        &self,
-        lock: &LockId,
-    ) -> Option<IdentityLockbox> {
+    pub fn export_for_lock(&self, lock: &LockId) -> Option<IdentityLockbox> {
         self.interface.self_export_lock(&mut rand_core::OsRng, lock)
     }
 
@@ -221,11 +218,9 @@ impl IdentityKey {
     #[cfg(feature = "getrandom")]
     /// Pack this key into a `Lockbox`, meant for the recipient specified by `stream`. Returns None
     /// if this key cannot be exported.
-    pub fn export_for_stream(
-        &self,
-        stream: &StreamKey,
-    ) -> Option<IdentityLockbox> {
-        self.interface.self_export_stream(&mut rand_core::OsRng, stream)
+    pub fn export_for_stream(&self, stream: &StreamKey) -> Option<IdentityLockbox> {
+        self.interface
+            .self_export_stream(&mut rand_core::OsRng, stream)
     }
 
     /// Pack this key into a `Lockbox`, meant for the recipient specified by `stream`. Returns None
@@ -328,7 +323,12 @@ impl TryFrom<&[u8]> for Identity {
             actual: 0,
         })?;
         if version != 1u8 {
-            return Err(CryptoError::UnsupportedVersion(version));
+            return Err(CryptoError::UnsupportedVersion {
+                ty: VersionType::Signing,
+                version,
+                min: MIN_SIGN_VERSION,
+                max: MAX_SIGN_VERSION,
+            });
         }
         let Some(data) = data.try_into().ok() else {
             return Err(CryptoError::BadLength {
@@ -432,7 +432,10 @@ pub trait SignInterface {
 /// without having a target [`LockKey`][crate::lock::LockKey] or [`StreamKey`] -
 /// a specialized requirement needed to implement things like invite tokens.
 #[derive(Clone)]
-pub struct BareIdKey { id: Identity, inner: ed25519_dalek::SigningKey, }
+pub struct BareIdKey {
+    id: Identity,
+    inner: ed25519_dalek::SigningKey,
+}
 
 impl std::fmt::Debug for BareIdKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -457,12 +460,13 @@ impl Default for BareIdKey {
 }
 
 impl BareIdKey {
-
     /// Generate a new self-contained Identity key.
     #[cfg(feature = "getrandom")]
     pub fn new() -> Self {
         let inner = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
-        let id = Identity { id: inner.verifying_key() };
+        let id = Identity {
+            id: inner.verifying_key(),
+        };
         Self { id, inner }
     }
 
@@ -481,11 +485,18 @@ impl BareIdKey {
         R: rand_core::CryptoRng + rand_core::RngCore,
     {
         if (version < MIN_SIGN_VERSION) || (version > MAX_SIGN_VERSION) {
-            return Err(CryptoError::UnsupportedVersion(version));
+            return Err(CryptoError::UnsupportedVersion {
+                ty: VersionType::Signing,
+                version,
+                min: MIN_SIGN_VERSION,
+                max: MAX_SIGN_VERSION,
+            });
         }
 
         let inner = ed25519_dalek::SigningKey::generate(csprng);
-        let id = Identity { id: inner.verifying_key() };
+        let id = Identity {
+            id: inner.verifying_key(),
+        };
 
         Ok(Self { id, inner })
     }
@@ -528,11 +539,13 @@ impl TryFrom<&[u8]> for BareIdKey {
             actual: 0,
         })?;
         let version = *version;
-        if version < MIN_SIGN_VERSION {
-            return Err(CryptoError::OldVersion(version));
-        }
-        if version > MAX_SIGN_VERSION {
-            return Err(CryptoError::UnsupportedVersion(version));
+        if version < MIN_SIGN_VERSION || version > MAX_SIGN_VERSION {
+            return Err(CryptoError::UnsupportedVersion {
+                ty: VersionType::Signing,
+                version,
+                min: MIN_SIGN_VERSION,
+                max: MAX_SIGN_VERSION,
+            });
         }
 
         if key.len() != V1_IDENTITY_KEY_SIZE {
@@ -543,7 +556,8 @@ impl TryFrom<&[u8]> for BareIdKey {
             });
         }
 
-        let secret_key = ed25519_dalek::SecretKey::try_from(key).map_err(|_| CryptoError::BadKey)?;
+        let secret_key =
+            ed25519_dalek::SecretKey::try_from(key).map_err(|_| CryptoError::BadKey)?;
 
         let inner = ed25519_dalek::SigningKey::from_bytes(&secret_key);
         let id = inner.verifying_key();
@@ -590,7 +604,6 @@ impl std::hash::Hash for BareIdKey {
         self.inner.to_bytes().hash(state);
     }
 }
-
 
 impl SignInterface for BareIdKey {
     fn sign(&self, hash: &Hash) -> Signature {
@@ -798,7 +811,12 @@ impl TryFrom<&[u8]> for UnverifiedSignature {
         })?;
         let hash_version = *hash_version;
         if hash_version < MIN_HASH_VERSION || hash_version > MAX_HASH_VERSION {
-            return Err(CryptoError::UnsupportedVersion(hash_version));
+            return Err(CryptoError::UnsupportedVersion {
+                ty: VersionType::Hash,
+                version: hash_version,
+                min: MIN_HASH_VERSION,
+                max: MAX_HASH_VERSION,
+            });
         }
         let (&id_version, data) = value.split_first().ok_or(CryptoError::BadLength {
             step: "get signature id version",
@@ -806,7 +824,12 @@ impl TryFrom<&[u8]> for UnverifiedSignature {
             actual: 0,
         })?;
         if id_version != 1 {
-            return Err(CryptoError::UnsupportedVersion(id_version));
+            return Err(CryptoError::UnsupportedVersion {
+                ty: VersionType::Signing,
+                version: id_version,
+                min: MIN_SIGN_VERSION,
+                max: MAX_SIGN_VERSION,
+            });
         }
 
         let id_len = V1_IDENTITY_ID_SIZE;
@@ -821,7 +844,9 @@ impl TryFrom<&[u8]> for UnverifiedSignature {
             actual: data.len() - id_len,
         })?;
         let raw_id = raw_id.try_into().unwrap();
-        let id = Identity { id: ed25519_dalek::VerifyingKey::from_bytes(raw_id).or(Err(CryptoError::BadKey))? };
+        let id = Identity {
+            id: ed25519_dalek::VerifyingKey::from_bytes(raw_id).or(Err(CryptoError::BadKey))?,
+        };
         let signature = ed25519_dalek::Signature::try_from(raw_signature)
             .or(Err(CryptoError::SignatureFailed))?;
         Ok(UnverifiedSignature {
@@ -844,20 +869,30 @@ mod tests {
         let key = IdentityKey::with_rng_and_version(&mut csprng, DEFAULT_SIGN_VERSION).unwrap();
         assert_eq!(key.version(), DEFAULT_SIGN_VERSION);
         let result = IdentityKey::with_rng_and_version(&mut csprng, 99u8);
-        if let Err(CryptoError::UnsupportedVersion(99u8)) = result {
-        } else {
+        let Err(CryptoError::UnsupportedVersion {
+            ty: VersionType::Signing,
+            version: 99u8,
+            min: MIN_SIGN_VERSION,
+            max: MAX_SIGN_VERSION,
+        }) = result
+        else {
             panic!("Didn't get expected error on with_rng_and_version");
-        }
+        };
 
         let key = BareIdKey::with_rng(&mut csprng);
         assert_eq!(key.id().version(), DEFAULT_SIGN_VERSION);
         let key = BareIdKey::with_rng_and_version(&mut csprng, DEFAULT_SIGN_VERSION).unwrap();
         assert_eq!(key.id().version(), DEFAULT_SIGN_VERSION);
         let result = BareIdKey::with_rng_and_version(&mut csprng, 99u8);
-        if let Err(CryptoError::UnsupportedVersion(99u8)) = result {
-        } else {
+        let Err(CryptoError::UnsupportedVersion {
+            ty: VersionType::Signing,
+            version: 99u8,
+            min: MIN_SIGN_VERSION,
+            max: MAX_SIGN_VERSION,
+        }) = result
+        else {
             panic!("Didn't get expected error on with_rng_and_version");
-        }
+        };
     }
 
     #[test]
@@ -1039,15 +1074,25 @@ mod tests {
 
         // Decode: Fail with an unsupported hash
         enc[0] = 0;
-        if let Err(CryptoError::UnsupportedVersion(0)) = UnverifiedSignature::try_from(&enc[..]) {
-        } else {
+        let Err(CryptoError::UnsupportedVersion {
+            ty: VersionType::Hash,
+            version: 0,
+            min: MIN_HASH_VERSION,
+            max: MAX_HASH_VERSION,
+        }) = UnverifiedSignature::try_from(&enc[..])
+        else {
             panic!("Signature decoding shouldn't permit a hash with version 0");
-        }
+        };
         enc[0] = 255;
-        if let Err(CryptoError::UnsupportedVersion(255)) = UnverifiedSignature::try_from(&enc[..]) {
-        } else {
+        let Err(CryptoError::UnsupportedVersion {
+            ty: VersionType::Hash,
+            version: 255,
+            min: MIN_HASH_VERSION,
+            max: MAX_HASH_VERSION,
+        }) = UnverifiedSignature::try_from(&enc[..])
+        else {
             panic!("Signature decoding shouldn't permit a hash with version 255");
-        }
+        };
     }
 
     #[test]
@@ -1066,15 +1111,25 @@ mod tests {
 
         // Decode: Fail with an unsupported identity
         enc[1] = 0;
-        if let Err(CryptoError::UnsupportedVersion(0)) = UnverifiedSignature::try_from(&enc[..]) {
-        } else {
+        let Err(CryptoError::UnsupportedVersion {
+            ty: VersionType::Signing,
+            version: 0,
+            min: MIN_SIGN_VERSION,
+            max: MAX_SIGN_VERSION,
+        }) = UnverifiedSignature::try_from(&enc[..])
+        else {
             panic!("Signature decoding shouldn't permit an identity with version 0");
-        }
+        };
         enc[1] = 255;
-        if let Err(CryptoError::UnsupportedVersion(255)) = UnverifiedSignature::try_from(&enc[..]) {
-        } else {
+        let Err(CryptoError::UnsupportedVersion {
+            ty: VersionType::Signing,
+            version: 255,
+            min: MIN_SIGN_VERSION,
+            max: MAX_SIGN_VERSION,
+        }) = UnverifiedSignature::try_from(&enc[..])
+        else {
             panic!("Signature decoding shouldn't permit an identity with version 255");
-        }
+        };
     }
 
     #[test]
@@ -1092,7 +1147,7 @@ mod tests {
         sign.encode_vec(&mut enc);
 
         // 1st Check: Change the length
-        let unverified = UnverifiedSignature::try_from(&enc[..enc.len()-1]);
+        let unverified = UnverifiedSignature::try_from(&enc[..enc.len() - 1]);
         if unverified.is_ok() {
             panic!("Should fail with BadLength when the signature has been truncated");
         }
