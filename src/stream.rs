@@ -444,18 +444,9 @@ impl BareStreamKey {
     /// implementation.
     fn decrypt_parts(
         &self,
-        recipient: &LockboxRecipient,
         parts: LockboxParts,
     ) -> Result<Vec<u8>, CryptoError> {
-        // Verify this is the right key for this lockbox. It costs us little to do this, and saves
-        // us from potential logic errors
-        if let LockboxRecipient::StreamId(id) = recipient {
-            if id != &self.id {
-                return Err(CryptoError::ObjectMismatch(
-                    "StreamKey being used on a lockbox meant for a different StreamId",
-                ));
-            }
-        } else {
+        if !parts.ty.is_for_stream() {
             return Err(CryptoError::ObjectMismatch(
                 "Attempted to use a StreamKey to decrypt a lockbox with a LockId recipient",
             ));
@@ -464,7 +455,7 @@ impl BareStreamKey {
         use chacha20poly1305::aead::Aead;
         use chacha20poly1305::*;
         let aead = XChaCha20Poly1305::new(Key::from_slice(&self.key));
-        let nonce = XNonce::from_slice(parts.nonce);
+        let nonce = XNonce::from_slice(parts.header);
         let payload = aead::Payload {
             msg: parts.ciphertext,
             aad: parts.additional,
@@ -539,8 +530,8 @@ impl StreamInterface for BareStreamKey {
         let id = id.raw_identifier();
         let tag_len = lockbox_tag_size(version);
         let nonce_len = lockbox_nonce_size(version);
-        let header_len = 2 + id.len();
-        let len = header_len + nonce_len + content.len() + tag_len;
+        let header_len = 2 + nonce_len;
+        let len = header_len + content.len() + tag_len;
         let mut lockbox: Vec<u8> = Vec::with_capacity(len);
         let mut nonce = [0u8; crate::lockbox::V1_LOCKBOX_NONCE_SIZE];
         csprng.fill_bytes(nonce.as_mut());
@@ -548,12 +539,11 @@ impl StreamInterface for BareStreamKey {
         // Lockbox header & data
         lockbox.push(version);
         lockbox.push(lock_type.as_u8());
-        lockbox.extend_from_slice(id);
         lockbox.extend_from_slice(nonce.as_ref());
         lockbox.extend_from_slice(content);
 
         // Setup & execute encryption
-        let (additional, nonce_and_content) = lockbox.split_at_mut(header_len);
+        let (additional, nonce_and_content) = lockbox.split_at_mut(2);
         let (_, content) = nonce_and_content.split_at_mut(nonce_len);
         let aead = XChaCha20Poly1305::new_from_slice(&self.key).unwrap();
         let nonce = XNonce::from(nonce);
@@ -569,9 +559,8 @@ impl StreamInterface for BareStreamKey {
     }
 
     fn decrypt_lock_key(&self, lockbox: &LockLockboxRef) -> Result<LockKey, CryptoError> {
-        let recipient = lockbox.recipient();
         let parts = lockbox.as_parts();
-        let mut key = self.decrypt_parts(&recipient, parts)?;
+        let mut key = self.decrypt_parts(parts)?;
         let result = BareLockKey::try_from(key.as_ref());
         key.zeroize();
         Ok(LockKey::from_interface(Arc::new(result?)))
@@ -581,27 +570,24 @@ impl StreamInterface for BareStreamKey {
         &self,
         lockbox: &IdentityLockboxRef,
     ) -> Result<IdentityKey, CryptoError> {
-        let recipient = lockbox.recipient();
         let parts = lockbox.as_parts();
-        let mut key = self.decrypt_parts(&recipient, parts)?;
+        let mut key = self.decrypt_parts(parts)?;
         let result = BareIdKey::try_from(key.as_ref());
         key.zeroize();
         Ok(IdentityKey::from_interface(Arc::new(result?)))
     }
 
     fn decrypt_stream_key(&self, lockbox: &StreamLockboxRef) -> Result<StreamKey, CryptoError> {
-        let recipient = lockbox.recipient();
         let parts = lockbox.as_parts();
-        let mut key = self.decrypt_parts(&recipient, parts)?;
+        let mut key = self.decrypt_parts(parts)?;
         let result = BareStreamKey::try_from(key.as_ref());
         key.zeroize();
         Ok(StreamKey::from_interface(Arc::new(result?)))
     }
 
     fn decrypt_data(&self, lockbox: &DataLockboxRef) -> Result<Vec<u8>, CryptoError> {
-        let recipient = lockbox.recipient();
         let parts = lockbox.as_parts();
-        self.decrypt_parts(&recipient, parts)
+        self.decrypt_parts(parts)
     }
 
     fn self_export_lock(
@@ -641,8 +627,8 @@ impl StreamInterface for BareStreamKey {
     }
 }
 
-/// An identifier for a corresponding [`StreamKey`]. It is primarily used to indicate lockboxes are
-/// meant for that particular key.
+/// An identifier for a corresponding [`StreamKey`]. It is primarily used to alongside lockboxes to
+/// indicate when they are meant for that particular key.
 ///
 /// This is derived through a hash of the key, given a set of specific hash parameters (see
 /// [`crate::stream`]).
@@ -660,40 +646,6 @@ impl StreamInterface for BareStreamKey {
 /// println!("StreamId(Base58): {}", id);
 /// ```
 ///
-/// It can also be used to identify a recipient of a lockbox:
-///
-/// ```
-/// # use fog_crypto::stream::*;
-/// # use fog_crypto::lockbox::*;
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// #
-/// // We start with a known StreamKey
-/// let key = StreamKey::new();
-/// #
-/// # // Encrypt some data with the key, then turn it into a byte vector
-/// # let data = b"I am about to be enciphered, though you can't see me in here...";
-/// # let lockbox = key.encrypt_data(data.as_ref());
-/// # let mut encoded = Vec::new();
-/// # encoded.extend_from_slice(lockbox.as_bytes());
-///
-/// // ...
-/// // We get the byte vector `encoded`, which might be a lockbox
-/// // ...
-///
-/// let dec_lockbox = DataLockboxRef::from_bytes(encoded.as_ref())?;
-/// let recipient = dec_lockbox.recipient();
-/// if let LockboxRecipient::StreamId(ref id) = dec_lockbox.recipient() {
-///     // Check to see if this matches the key's StreamId
-///     if id == key.id() {
-///         let dec_data: Vec<u8> = key.decrypt_data(&dec_lockbox)?;
-///     }
-///     else {
-///         panic!("We were hoping this lockbox was for us!");
-///     }
-/// }
-/// # Ok(())
-/// # }
-/// ```
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct StreamId {
     inner: Vec<u8>,
@@ -810,7 +762,6 @@ impl fmt::UpperHex for StreamId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lockbox::LockboxRecipient;
 
     #[test]
     fn basics() {
@@ -917,28 +868,15 @@ mod tests {
         assert!(check_decrypt(&enc[..]));
     }
 
-    fn corrupt_id<F1, F2>(mut enc: Vec<u8>, _check_decode: F1, check_decrypt: F2)
+    fn corrupt_nonce<F1, F2>(mut enc: Vec<u8>, _check_decode: F1, check_decrypt: F2)
     where
         F1: Fn(&[u8]) -> bool,
         F2: Fn(&[u8]) -> bool,
     {
-        // Identity corruption - 2 is the first byte of the ID
+        // Nonce corruption - 2 is the first byte of the nonce
         enc[2] ^= 0xFF;
         assert!(!check_decrypt(&enc[..]));
         enc[2] ^= 0xFF;
-        assert!(check_decrypt(&enc[..]));
-    }
-
-    fn corrupt_nonce<F1, F2>(mut enc: Vec<u8>, check_decode: F1, check_decrypt: F2)
-    where
-        F1: Fn(&[u8]) -> bool,
-        F2: Fn(&[u8]) -> bool,
-    {
-        // Nonce corruption - 35 is first byte of the nonce
-        enc[35] ^= 0xFF;
-        assert!(check_decode(&enc[..]));
-        assert!(!check_decrypt(&enc[..]));
-        enc[35] ^= 0xFF;
         assert!(check_decrypt(&enc[..]));
     }
 
@@ -1032,8 +970,6 @@ mod tests {
 
         // Encrypt
         let lockbox = key.encrypt_data(message);
-        let recipient = LockboxRecipient::StreamId(key.id().clone());
-        assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
         (
             enc,
@@ -1044,9 +980,6 @@ mod tests {
                 } else {
                     return false;
                 };
-                if LockboxRecipient::StreamId(key.id().clone()) != dec_lockbox.recipient() {
-                    return false;
-                }
                 if let Ok(dec) = key.decrypt_data(dec_lockbox) {
                     dec == message
                 } else {
@@ -1072,12 +1005,6 @@ mod tests {
     fn data_corrupt_type() {
         let (enc, check_decode, check_decrypt) = setup_data();
         corrupt_type(enc, check_decode, check_decrypt);
-    }
-
-    #[test]
-    fn data_corrupt_id() {
-        let (enc, check_decode, check_decrypt) = setup_data();
-        corrupt_id(enc, check_decode, check_decrypt);
     }
 
     #[test]
@@ -1123,8 +1050,6 @@ mod tests {
 
         // Encrypt
         let lockbox = to_send.export_for_stream(&key).unwrap();
-        let recipient = LockboxRecipient::StreamId(key.id().clone());
-        assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
         (
             enc,
@@ -1135,9 +1060,6 @@ mod tests {
                 } else {
                     return false;
                 };
-                if LockboxRecipient::StreamId(key.id().clone()) != dec_lockbox.recipient() {
-                    return false;
-                }
                 if let Ok(dec) = key.decrypt_identity_key(dec_lockbox) {
                     dec.id() == to_send.id()
                 } else {
@@ -1163,12 +1085,6 @@ mod tests {
     fn id_corrupt_type() {
         let (enc, check_decode, check_decrypt) = setup_id();
         corrupt_type(enc, check_decode, check_decrypt);
-    }
-
-    #[test]
-    fn id_corrupt_id() {
-        let (enc, check_decode, check_decrypt) = setup_id();
-        corrupt_id(enc, check_decode, check_decrypt);
     }
 
     #[test]
@@ -1270,8 +1186,6 @@ mod tests {
 
         // Encrypt
         let lockbox = to_send.export_for_stream(&key).unwrap();
-        let recipient = LockboxRecipient::StreamId(key.id().clone());
-        assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
         (
             enc,
@@ -1282,9 +1196,6 @@ mod tests {
                 } else {
                     return false;
                 };
-                if LockboxRecipient::StreamId(key.id().clone()) != dec_lockbox.recipient() {
-                    return false;
-                }
                 if let Ok(dec) = key.decrypt_stream_key(dec_lockbox) {
                     dec.id() == to_send.id()
                 } else {
@@ -1310,12 +1221,6 @@ mod tests {
     fn lock_stream_corrupt_type() {
         let (enc, check_decode, check_decrypt) = setup_stream();
         corrupt_type(enc, check_decode, check_decrypt);
-    }
-
-    #[test]
-    fn lock_stream_corrupt_id() {
-        let (enc, check_decode, check_decrypt) = setup_stream();
-        corrupt_id(enc, check_decode, check_decrypt);
     }
 
     #[test]
@@ -1416,8 +1321,6 @@ mod tests {
 
         // Encrypt
         let lockbox = to_send.export_for_stream(&key).unwrap();
-        let recipient = LockboxRecipient::StreamId(key.id().clone());
-        assert_eq!(recipient, lockbox.recipient());
         let enc = Vec::from(lockbox.as_bytes());
         (
             enc,
@@ -1428,9 +1331,6 @@ mod tests {
                 } else {
                     return false;
                 };
-                if LockboxRecipient::StreamId(key.id().clone()) != dec_lockbox.recipient() {
-                    return false;
-                }
                 if let Ok(dec) = key.decrypt_lock_key(dec_lockbox) {
                     dec.id() == to_send.id()
                 } else {
@@ -1456,12 +1356,6 @@ mod tests {
     fn lock_lock_corrupt_type() {
         let (enc, check_decode, check_decrypt) = setup_lock();
         corrupt_type(enc, check_decode, check_decrypt);
-    }
-
-    #[test]
-    fn lock_lock_corrupt_id() {
-        let (enc, check_decode, check_decrypt) = setup_lock();
-        corrupt_id(enc, check_decode, check_decrypt);
     }
 
     #[test]

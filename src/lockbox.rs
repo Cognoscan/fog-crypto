@@ -27,10 +27,17 @@
 //!
 //! # Algorithms
 //!
-//! The current (and only) algorithm is XChaCha20 with a Poly1305 AEAD construction. For
-//! `StreamKey` recipients, the secret XChaCha20 key is used for encryption. For `LockId`
-//! recipients, an ephemeral X25519 keypair is generated and DH key agreement is used to generate
-//! the key.
+//! The current (and only) algorithm is XChaCha20 with a Poly1305 AEAD construction.
+//!
+//! For `StreamKey` recipients, the secret XChaCha20 key is used for encryption, and a randomized
+//! nonce is used. The nonce is included in the lockbox header. For AEAD, the additional data is the
+//! lockbox version and type.
+//!
+//! For `LockId` recipients, an ephemeral X25519 keypair is generated and DH key agreement
+//! is used to generate the key. The nonce is calculated by concatenating the ephemeral public key
+//! with the target public key, hashing them with Blake2b, and taking the first 24 bytes of the
+//! hash. The ephemeral public key is included in the lockbox header. For AEAD, the additional data
+//! is the lockbox version, lockbox type, and public ephemeral key.
 //!
 //! # Lockbox Types
 //!
@@ -49,71 +56,62 @@
 //! | `DataLockbox`     | `StreamId` | 7          |
 //!
 //! Alternately, the Type byte can be considered to have two bitfields: bit 0 encodes the
-//! recipient, and bits 2 & 1 encode the main lockbox type.
+//! recipient type, and bits 2 & 1 encode the main lockbox type.
 //!
 //! # Format
 //!
 //! The first lockbox format is for `LockId`-recipient lockboxes. It consists of the version
-//! byte, a byte set to the lockbox type, the encoded `LockId`, an ephemeral X25519 public key
-//! (without a version byte), a 24-byte nonce, the ciphertext, and the 16-byte Poly1305
-//! authentication tag.
+//! byte, a byte set to the lockbox type, an ephemeral X25519 public key (with version byte), the
+//! ciphertext, and the 16-byte Poly1305 authentication tag.
 //!
 //! The second lockbox format is for `StreamKey`-recipient lockboxes. It consists of the version
-//! byte, a byte set to the lockbox type, the encoded `StreamId`, a 24-byte nonce, the ciphertext,
+//! byte, a byte set to the lockbox type, a 24-byte nonce, the ciphertext,
 //! and the 16-byte Poly1305 authentication tag.
 //!
 //! ```text
-//! +----------+----------+=========+==========+==========+==============+=====+
-//! | Version  |   Type   | PubKey  |  EphKey  |  Nonce   |  Ciphertext  | Tag |
-//! +----------+----------+=========+==========+==========+==============+=====+
+//! +----------+----------+==========+==============+=====+
+//! | Version  |   Type   |  EphKey  |  Ciphertext  | Tag |
+//! +----------+----------+==========+==============+=====+
 //!
-//! +----------+----------+==========+==========+==============+=====+
-//! | Version  |   Type   | StreamId |  Nonce   |  Ciphertext  | Tag |
-//! +----------+----------+==========+==========+==============+=====+
+//! +----------+----------+==========+==============+=====+
+//! | Version  |   Type   |  Nonce   |  Ciphertext  | Tag |
+//! +----------+----------+==========+==============+=====+
 //!
 //! - Version indicates what version of symmetric-key encryption was used for this lockbox.
 //! - Type indicates the lockbox type and recipient type. If bit 0 is cleared, the first format
 //!   (with SignKey & EphKey) is used. If bit 1 is set, the second format (with StreamId) is used.
-//! - PubKey is a LockId. This is a version byte followed by the encoded public key.
 //! - EphKey is a raw public key, of the same version as SignKey.
-//! - StreamId is an identifier for the StreamKey that created the lockbox, of the same version as
-//!   the lockbox itself.
 //! - Nonce is a random byte sequence matching the nonce length specified by the symmetric
 //!   encryption version used.
 //! - Ciphertext is the internal data, encrypted with the chosen algorithm.
 //! - Tag is the authentication tag produced using the chosen algorithm.
-//! 
+//!
 //! For lockbox version 1 with version 1 public/private keys, the field sizes are:
-//! 
+//!
 //! | Field      | Size (bytes) |
 //! | ---------- | ------------ |
 //! | Version    | 1            |
 //! | Type       | 1            |
-//! | PubKey     | 33           |
-//! | EphKey     | 32           |
-//! | Nonce      | 24           |
-//! | Ciphertext | Variable     |
+//! | EphKey     | 33           |
 //! | Tag        | 16           |
-//! 
+//! | Ciphertext | Variable     |
+//!
 //! For lockbox version 1 with a version 1 stream key, the field sizes are:
-//! 
+//!
 //! | Field      | Size (bytes) |
 //! | ---------- | ------------ |
 //! | Version    | 1            |
 //! | Type       | 1            |
-//! | StreamId   | 32           |
 //! | Nonce      | 24           |
-//! | Ciphertext | Variable     |
 //! | Tag        | 16           |
+//! | Ciphertext | Variable     |
 //! ```
 //!
 //! In the AEAD construction, the additional data consists of every byte prior to the nonce.
 //!
 
 use crate::{
-    lock::{lock_eph_size, lock_id_size, LockId},
-    stream::{stream_raw_id_size, StreamId, MAX_STREAM_VERSION, MIN_STREAM_VERSION},
-    CryptoError,
+    lock::{lock_eph_size, lock_id_size, LockId}, stream::{stream_raw_id_size, StreamId, MAX_STREAM_VERSION, MIN_STREAM_VERSION}, CryptoError, MAX_LOCK_VERSION, MIN_LOCK_VERSION
 };
 
 use std::{convert::TryFrom, fmt};
@@ -123,7 +121,7 @@ pub(crate) const V1_LOCKBOX_TAG_SIZE: usize = 16;
 
 const LOCKBOX_OFFSET_VERSION: usize = 0;
 const LOCKBOX_OFFSET_TYPE: usize = 1;
-const LOCKBOX_OFFSET_ID_VERSION: usize = 2;
+const LOCKBOX_OFFSET_HEADER: usize = 2;
 
 /// Encodes the various types of lockboxes that may be decoded.
 ///
@@ -205,7 +203,8 @@ pub(crate) fn lockbox_tag_size(_version: u8) -> usize {
 ///
 /// This must be decrypted by the matching recipient, which will return the `LockKey` on success.
 /// It can either be decrypted on its own, returning a temporary `LockKey`, or through a Vault,
-/// which will store the `LockKey`.
+/// which will store the `LockKey`. The recipient key is not encoded in the lockbox; it must be
+/// determined through other means.
 ///
 /// When decoding, a reference to the data is first created: [`LockLockboxRef`], which can then be
 /// converted with `to_owned` to create this struct.
@@ -233,9 +232,8 @@ pub(crate) fn lockbox_tag_size(_version: u8) -> usize {
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
 /// let dec_lockbox: LockLockbox = LockLockboxRef::from_bytes(&enc[..])?.to_owned();
-/// let recipient: LockboxRecipient = dec_lockbox.recipient();
 /// // ...
-/// // Retrieve the key by looking up recipient
+/// // Retrieve the key by figuring out who the recipient is...
 /// // ...
 /// let dec_key: LockKey = key.decrypt_lock_key(&dec_lockbox)?;
 /// # Ok(())
@@ -249,7 +247,6 @@ impl fmt::Debug for LockLockbox {
         let parts = self.as_parts();
         f.debug_struct("LockLockbox")
             .field("version", &self.version())
-            .field("recipient", &self.recipient())
             .field("cipertext_len", &parts.ciphertext.len())
             .finish()
     }
@@ -300,9 +297,8 @@ impl std::borrow::Borrow<LockLockboxRef> for LockLockbox {
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
 /// let dec_lockbox: &LockLockboxRef = LockLockboxRef::from_bytes(&enc[..])?;
-/// let recipient: LockboxRecipient = dec_lockbox.recipient();
 /// // ...
-/// // Retrieve the key by looking up recipient
+/// // Retrieve the key by determining the recipient...
 /// // ...
 /// let dec_key: LockKey = key.decrypt_lock_key(&dec_lockbox)?;
 /// # Ok(())
@@ -329,11 +325,6 @@ impl LockLockboxRef {
     /// Get the stream encryption version.
     pub fn version(&self) -> u8 {
         self.0.version()
-    }
-
-    /// Get the target recipient who can decrypt this.
-    pub fn recipient(&self) -> LockboxRecipient {
-        self.0.recipient()
     }
 
     /// The raw bytestream, suitable for serialization.
@@ -366,7 +357,6 @@ impl fmt::Debug for LockLockboxRef {
         let parts = self.as_parts();
         f.debug_struct("LockLockboxRef")
             .field("version", &self.version())
-            .field("recipient", &self.recipient())
             .field("cipertext_len", &parts.ciphertext.len())
             .finish()
     }
@@ -404,9 +394,8 @@ impl fmt::Debug for LockLockboxRef {
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
 /// let dec_lockbox: IdentityLockbox = IdentityLockboxRef::from_bytes(&enc[..])?.to_owned();
-/// let recipient: LockboxRecipient = dec_lockbox.recipient();
 /// // ...
-/// // Retrieve the key by looking up recipient
+/// // Retrieve the key by determining the recipient...
 /// // ...
 /// let dec_key: IdentityKey = key.decrypt_identity_key(&dec_lockbox)?;
 /// # Ok(())
@@ -420,7 +409,6 @@ impl fmt::Debug for IdentityLockbox {
         let parts = self.as_parts();
         f.debug_struct("IdentityLockbox")
             .field("version", &self.version())
-            .field("recipient", &self.recipient())
             .field("cipertext_len", &parts.ciphertext.len())
             .finish()
     }
@@ -471,9 +459,8 @@ impl std::borrow::Borrow<IdentityLockboxRef> for IdentityLockbox {
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
 /// let dec_lockbox: &IdentityLockboxRef = IdentityLockboxRef::from_bytes(&enc[..])?;
-/// let recipient: LockboxRecipient = dec_lockbox.recipient();
 /// // ...
-/// // Retrieve the key by looking up recipient
+/// // Retrieve the key by determining the recipient...
 /// // ...
 /// let dec_key: IdentityKey = key.decrypt_identity_key(&dec_lockbox)?;
 /// # Ok(())
@@ -500,11 +487,6 @@ impl IdentityLockboxRef {
     /// Get the stream encryption version.
     pub fn version(&self) -> u8 {
         self.0.version()
-    }
-
-    /// Get the target recipient who can decrypt this.
-    pub fn recipient(&self) -> LockboxRecipient {
-        self.0.recipient()
     }
 
     /// The raw bytestream, suitable for serialization.
@@ -537,7 +519,6 @@ impl fmt::Debug for IdentityLockboxRef {
         let parts = self.as_parts();
         f.debug_struct("IdentityLockboxRef")
             .field("version", &self.version())
-            .field("recipient", &self.recipient())
             .field("cipertext_len", &parts.ciphertext.len())
             .finish()
     }
@@ -574,9 +555,8 @@ impl fmt::Debug for IdentityLockboxRef {
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
 /// let dec_lockbox: StreamLockbox = StreamLockboxRef::from_bytes(&enc[..])?.to_owned();
-/// let recipient: LockboxRecipient = dec_lockbox.recipient();
 /// // ...
-/// // Retrieve the key by looking up recipient
+/// // Retrieve the key by determining the recipient...
 /// // ...
 /// let dec_key: StreamKey = key.decrypt_stream_key(&dec_lockbox)?;
 /// # Ok(())
@@ -590,7 +570,6 @@ impl fmt::Debug for StreamLockbox {
         let parts = self.as_parts();
         f.debug_struct("StreamLockbox")
             .field("version", &self.version())
-            .field("recipient", &self.recipient())
             .field("cipertext_len", &parts.ciphertext.len())
             .finish()
     }
@@ -640,9 +619,8 @@ impl std::borrow::Borrow<StreamLockboxRef> for StreamLockbox {
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
 /// let dec_lockbox: &StreamLockboxRef = StreamLockboxRef::from_bytes(&enc[..])?;
-/// let recipient: LockboxRecipient = dec_lockbox.recipient();
 /// // ...
-/// // Retrieve the key by looking up recipient
+/// // Retrieve the key by determining the recipient...
 /// // ...
 /// let dec_key: StreamKey = key.decrypt_stream_key(&dec_lockbox)?;
 /// # Ok(())
@@ -669,11 +647,6 @@ impl StreamLockboxRef {
     /// Get the stream encryption version.
     pub fn version(&self) -> u8 {
         self.0.version()
-    }
-
-    /// Get the target recipient who can decrypt this.
-    pub fn recipient(&self) -> LockboxRecipient {
-        self.0.recipient()
     }
 
     /// The raw bytestream, suitable for serialization.
@@ -706,7 +679,6 @@ impl fmt::Debug for StreamLockboxRef {
         let parts = self.as_parts();
         f.debug_struct("StreamLockboxRef")
             .field("version", &self.version())
-            .field("recipient", &self.recipient())
             .field("cipertext_len", &parts.ciphertext.len())
             .finish()
     }
@@ -743,9 +715,8 @@ impl fmt::Debug for StreamLockboxRef {
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
 /// let dec_lockbox: DataLockbox = DataLockboxRef::from_bytes(&enc[..])?.to_owned();
-/// let recipient: LockboxRecipient = dec_lockbox.recipient();
 /// // ...
-/// // Retrieve the key by looking up recipient
+/// // Retrieve the key by determining the recipient...
 /// // ...
 /// let plaintext: Vec<u8> = key.decrypt_data(&dec_lockbox)?;
 /// # Ok(())
@@ -759,7 +730,6 @@ impl fmt::Debug for DataLockbox {
         let parts = self.as_parts();
         f.debug_struct("DataLockbox")
             .field("version", &self.version())
-            .field("recipient", &self.recipient())
             .field("cipertext_len", &parts.ciphertext.len())
             .finish()
     }
@@ -809,9 +779,8 @@ impl std::borrow::Borrow<DataLockboxRef> for DataLockbox {
 /// #
 /// // We have `enc`, a byte vector containing a lockbox
 /// let dec_lockbox: &DataLockboxRef = DataLockboxRef::from_bytes(&enc[..])?;
-/// let recipient: LockboxRecipient = dec_lockbox.recipient();
 /// // ...
-/// // Retrieve the key by looking up recipient
+/// // Retrieve the key by determining the recipient...
 /// // ...
 /// let plaintext: Vec<u8> = key.decrypt_data(&dec_lockbox)?;
 /// # Ok(())
@@ -838,11 +807,6 @@ impl DataLockboxRef {
     /// Get the stream encryption version.
     pub fn version(&self) -> u8 {
         self.0.version()
-    }
-
-    /// Get the target recipient who can decrypt this.
-    pub fn recipient(&self) -> LockboxRecipient {
-        self.0.recipient()
     }
 
     /// The raw bytestream, suitable for serialization.
@@ -875,22 +839,21 @@ impl fmt::Debug for DataLockboxRef {
         let parts = self.as_parts();
         f.debug_struct("DataLockboxRef")
             .field("version", &self.version())
-            .field("recipient", &self.recipient())
             .field("cipertext_len", &parts.ciphertext.len())
             .finish()
     }
 }
 
 /// A lockbox byte stream, sliced into its component parts
-pub struct LockboxParts<'a> {
-    /// The ephemeral public key
-    pub eph_pub: Option<&'a [u8]>,
-    /// The entire "additional data" portion - every byte prior to the nonce.
+pub(crate) struct LockboxParts<'a> {
+    /// The parsed lockbox type
+    pub ty: LockboxType,
+    /// The entire "additional data" portion - every byte prior to the tag
     pub additional: &'a [u8],
-    /// The random nonce.
-    pub nonce: &'a [u8],
-    /// The encrypted data, including the AEAD tag at the end.
+    /// The encrypted data + tag
     pub ciphertext: &'a [u8],
+    /// The header portion that isn't additional or AEAD
+    pub header: &'a [u8],
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -903,7 +866,6 @@ impl fmt::Debug for Lockbox {
         let parts = self.as_parts();
         f.debug_struct("Lockbox")
             .field("version", &self.version())
-            .field("recipient", &self.recipient())
             .field("cipertext_len", &parts.ciphertext.len())
             .finish()
     }
@@ -945,31 +907,26 @@ impl LockboxRef {
 
     fn as_parts(&self) -> LockboxParts {
         let version = self.version();
-        let nonce_len = lockbox_nonce_size(version);
-        let boxtype = LockboxType::from_u8(self.inner[LOCKBOX_OFFSET_TYPE]).unwrap();
-        if boxtype.is_for_stream() {
-            let id_len = stream_raw_id_size(version);
-            let additional_len = 2 + id_len; // 1 for lockbox version, 1 for lockbox type
-            let (additional, inner) = self.inner.split_at(additional_len);
-            let (nonce, ciphertext) = inner.split_at(nonce_len);
+        let ty = LockboxType::from_u8(self.inner[LOCKBOX_OFFSET_TYPE]).unwrap();
+        if ty.is_for_stream() {
+            let header_len = LOCKBOX_OFFSET_HEADER + lockbox_nonce_size(version);
+            let (header, ciphertext) = self.inner.split_at(header_len);
+            let (additional, header) = header.split_at(LOCKBOX_OFFSET_HEADER);
             LockboxParts {
-                eph_pub: None,
+                ty,
                 additional,
-                nonce,
+                header,
                 ciphertext,
             }
         } else {
-            let id_version = self.inner[LOCKBOX_OFFSET_ID_VERSION]; // Can differ from lockbox version
-            let id_len = lock_id_size(id_version);
-            let eph_len = lock_eph_size(id_version);
-            let additional_len = 2 + id_len + eph_len; // 1 for lockbox version, 1 for lockbox type
-            let (additional, inner) = self.inner.split_at(additional_len);
-            let eph_pub = additional.get((2 + id_len)..).unwrap();
-            let (nonce, ciphertext) = inner.split_at(nonce_len);
+            let id_version = self.inner[LOCKBOX_OFFSET_HEADER]; // Can differ from lockbox version
+            let header_len = LOCKBOX_OFFSET_HEADER + lock_id_size(id_version);
+            let (additional, ciphertext) = self.inner.split_at(header_len);
+            let header = &additional[LOCKBOX_OFFSET_HEADER..];
             LockboxParts {
-                eph_pub: Some(eph_pub),
+                ty,
                 additional,
-                nonce,
+                header,
                 ciphertext,
             }
         }
@@ -978,22 +935,6 @@ impl LockboxRef {
     /// Get the version of the Lockbox.
     fn version(&self) -> u8 {
         self.inner[LOCKBOX_OFFSET_VERSION]
-    }
-
-    /// Get the target recipient who should be able to decrypt the lockbox.
-    fn recipient(&self) -> LockboxRecipient {
-        let lockbox_version = self.inner[LOCKBOX_OFFSET_VERSION];
-        let boxtype = LockboxType::from_u8(self.inner[1]).unwrap();
-        if boxtype.is_for_stream() {
-            let id_len = stream_raw_id_size(lockbox_version);
-            let range = LOCKBOX_OFFSET_ID_VERSION..(LOCKBOX_OFFSET_ID_VERSION + id_len);
-            LockboxRecipient::StreamId(StreamId::from_parts(lockbox_version, &self.inner[range]))
-        } else {
-            let id_version = self.inner[LOCKBOX_OFFSET_ID_VERSION];
-            let id_len = lock_id_size(id_version);
-            let range = LOCKBOX_OFFSET_ID_VERSION..(LOCKBOX_OFFSET_ID_VERSION + id_len);
-            LockboxRecipient::LockId(LockId::try_from(&self.inner[range]).unwrap())
-        }
     }
 
     /// Provide the encoded lockbox as a byte slice.
@@ -1017,43 +958,30 @@ impl LockboxRef {
             actual: 0,
         })?;
         let boxtype = LockboxType::from_u8(boxtype)?;
-        if boxtype.is_for_stream() {
-            // Check the length. Must be at least long enough to hold the StreamId, Nonce, and
-            // Tag. It is acceptable (if a bit silly) for the actual ciphertext to be of length
-            // 0.
-            let id_len = stream_raw_id_size(version);
-            let nonce_len = lockbox_nonce_size(version);
-            let tag_len = lockbox_tag_size(version);
-            if parse.len() < (id_len + nonce_len + tag_len) {
-                return Err(CryptoError::BadLength {
-                    step: "get lockbox component lengths",
-                    expected: id_len + nonce_len + tag_len,
-                    actual: parse.len(),
-                });
-            }
-            Ok((Self::new_ref(raw), boxtype))
+        let header_len = if boxtype.is_for_stream() {
+            lockbox_nonce_size(version)
         } else {
-            let id_version = *parse.first().ok_or(CryptoError::BadLength {
-                step: "get LockId version for lockbox",
+            let id_version = parse.first().copied().ok_or(CryptoError::BadLength {
+                step: "get lockbox ephemeral LockId version",
                 expected: 1,
                 actual: 0,
             })?;
-            let id_len = lock_id_size(id_version);
-            let eph_len = lock_eph_size(id_version);
-            let nonce_len = lockbox_nonce_size(version);
-            let tag_len = lockbox_tag_size(version);
-            if parse.len() < (id_len + eph_len + nonce_len + tag_len) {
-                return Err(CryptoError::BadLength {
-                    step: "get lockbox component lengths",
-                    expected: id_len + eph_len + nonce_len + tag_len,
-                    actual: parse.len(),
-                });
+            if id_version < MIN_LOCK_VERSION || id_version > MAX_LOCK_VERSION {
+                return Err(CryptoError::UnsupportedVersion(id_version));
             }
-            // Extract the LockId
-            let (raw_id, _) = parse.split_at(id_len);
-            LockId::try_from(raw_id)?; // Just verify that the ID is a valid one
-            Ok((Self::new_ref(raw), boxtype))
+            lock_id_size(id_version)
+        };
+        let tag_len = lockbox_tag_size(version);
+        // Check the length. Must be at least long enough to hold the header and tag. It is
+        // acceptable (if silly) for the actual ciphertext to be of length 0.
+        if parse.len() < header_len + tag_len {
+            return Err(CryptoError::BadLength {
+                step: "get lockbox header data",
+                expected: header_len + tag_len,
+                actual: parse.len(),
+            });
         }
+        Ok((Self::new_ref(raw), boxtype))
     }
 }
 
@@ -1062,7 +990,6 @@ impl fmt::Debug for LockboxRef {
         let parts = self.as_parts();
         f.debug_struct("Lockbox")
             .field("version", &self.version())
-            .field("recipient", &self.recipient())
             .field("cipertext_len", &parts.ciphertext.len())
             .finish()
     }
@@ -1112,13 +1039,4 @@ pub fn stream_lockbox_from_parts(inner: Vec<u8>) -> StreamLockbox {
 /// round-trip encrypt/decrypt for each lockbox type to catch misuse of this.
 pub fn data_lockbox_from_parts(inner: Vec<u8>) -> DataLockbox {
     DataLockbox(Lockbox { inner })
-}
-
-/// Lockboxes can be meant for one of two types of recipients: a [`LockId`] (public key), or a
-/// [`StreamId`] (symmetric key). The corresponding [`LockKey`](crate::lock::LockKey) or
-/// [`StreamKey`](crate::stream::StreamKey) is needed for decryption of the lockbox.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum LockboxRecipient {
-    LockId(LockId),
-    StreamId(StreamId),
 }
