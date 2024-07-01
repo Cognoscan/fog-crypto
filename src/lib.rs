@@ -1,6 +1,8 @@
 //! A simple storage-oriented cryptographic library that offers you freedom from choice. It
 //! supports hashing, public key signatures, public key & symmetric key encryption, key
 //! export/import, and basic key storage.
+//! 
+//! ⚠️ This crate is not yet stablized, and should not be used for anything but experiments until version 1 is released! ⚠️
 //!
 //! Getting cryptography right can be hard. This library attempts to make things easy by only
 //! providing a small number of cryptographic primitives, makes strong decisions about the
@@ -76,7 +78,8 @@
 //! The currently used algorithms are:
 //!
 //! - Hashing: Blake2B with a 32-byte digest
-//! - Signing: Ed25519 with ["strict" verification][StrictVerification]
+//! - Signing: Ed25519 with ["strict" verification][StrictVerification], modified to use Blake2B
+//!   (with a 64-byte digest) as the hashing function instead of SHA-512.
 //! - Symmetric Encryption: AEAD cipher using XChaCha20 and Poly1305.
 //! - Diffie-Hellman key exchange: X25519
 //!

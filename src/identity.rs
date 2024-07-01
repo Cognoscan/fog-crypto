@@ -1,9 +1,9 @@
 //! Cryptographic signatures.
 //!
 //! This module lets you create a signing [`IdentityKey`], which can be used to create a
-//! [`Signature`] for a given [`Hash`](struct@crate::hash::Hash). Each `IdentityKey` has an
-//! associated [`Identity`], which may be freely shared. A `Signature` may be provided separate from
-//! the data or alongside it, and always includes the `Identity` of the signer.
+//! [`Signature`] for a given [`HashState`](struct@crate::hash::HashState). Each `IdentityKey` has
+//! an associated [`Identity`], which may be freely shared. A `Signature` may be provided separate
+//! from the data or alongside it, and always includes the `Identity` of the signer.
 //!
 //! All `IdentityKey` structs are backed by some struct that implements the [`SignInterface`] trait;
 //! this can be an in-memory private key, an interface to an OS-managed keystore, an interface to a
@@ -13,7 +13,7 @@
 //!
 //! ```
 //! # use fog_crypto::identity::*;
-//! # use fog_crypto::hash::Hash;
+//! # use fog_crypto::hash::HashState;
 //! # use std::convert::TryFrom;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
@@ -23,8 +23,9 @@
 //! println!("Identity(Base58): {}", key.id());
 //!
 //! // Sign some data
-//! let hash = Hash::new(b"I am data, soon to be hashed");
-//! let signature = key.sign(&hash);
+//! let mut hasher = HashState::new();
+//! hasher.update(b"I am data, soon to be hashed");
+//! let signature = key.sign(&hasher);
 //!
 //! // Encode the signature
 //! let mut encoded = Vec::new();
@@ -32,7 +33,7 @@
 //!
 //! // Decode the signature and verify it
 //! let unverified = UnverifiedSignature::try_from(&encoded[..])?;
-//! match unverified.verify(&hash) {
+//! match unverified.verify(&hasher) {
 //!     Ok(verified) => {
 //!         println!("Got valid signature, signed by {}", verified.signer());
 //!     },
@@ -46,9 +47,11 @@
 //!
 //! # Algorithms
 //!
-//! The current (and only) algorithm for public-key signatures is Ed25519 with [strict
-//! verification][StrictVerification]. The private key is handled by an [`IdentityKey`], while the
-//! public key is available as an [`Identity`].
+//! The current (and only) algorithm for public-key signatures is Ed25519, using Blake2b as the hash
+//! algorithm, with [strict verification][StrictVerification]. The private key is handled by an
+//! [`IdentityKey`], while the public key is available as an [`Identity`]. A context string of
+//! `fog-crypto-sign-s1-h1` is used during signing, with `s1` identifying the signature version and
+//! `h1` identifying the hash version.
 //!
 //! [StrictVerification]: https://docs.rs/ed25519-dalek/2.0.0/ed25519_dalek/struct.VerifyingKey.html#method.verify_strict
 //!
@@ -76,10 +79,10 @@
 //! - Signature: Variable, depends on Identity version
 //! ```
 
-use ed25519_dalek::Signer;
+use blake2::{Blake2b512, Digest};
 
 use crate::{
-    hash::{Hash, MAX_HASH_VERSION, MIN_HASH_VERSION},
+    hash::{HashState, MAX_HASH_VERSION, MIN_HASH_VERSION},
     lock::LockId,
     lockbox::*,
     stream::StreamKey,
@@ -88,7 +91,7 @@ use crate::{
 
 use rand_core::{CryptoRng, RngCore};
 
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use std::{convert::TryFrom, fmt, sync::Arc};
 
@@ -105,6 +108,8 @@ const V1_IDENTITY_KEY_SIZE: usize = ed25519_dalek::SECRET_KEY_LENGTH;
 const V1_IDENTITY_ID_SIZE: usize = ed25519_dalek::PUBLIC_KEY_LENGTH;
 const V1_IDENTITY_SIGN_SIZE: usize = ed25519_dalek::SIGNATURE_LENGTH;
 
+const V1_CONTEXT: &[u8] = b"fog-crypto-sign-s1-h1";
+
 /// Identity Key that allows signing hashes as a given Identity.
 ///
 /// This acts as a wrapper for a specific cryptographic private key, and it is only be used for a
@@ -116,15 +121,15 @@ const V1_IDENTITY_SIGN_SIZE: usize = ed25519_dalek::SIGNATURE_LENGTH;
 ///
 /// ```
 /// # use fog_crypto::identity::*;
-/// # use fog_crypto::hash::Hash;
+/// # use fog_crypto::hash::HashState;
 /// # use std::convert::TryFrom;
 ///
 /// // Make a new temporary key
 /// let key = IdentityKey::new();
 ///
 /// // Sign some data with it
-/// let hash = Hash::new(b"I am data, about to be signed");
-/// let signature = key.sign(&hash);
+/// let hasher = HashState::new().chain_update(b"I am data, about to be signed");
+/// let signature = key.sign(&hasher);
 ///
 /// ```
 #[derive(Clone)]
@@ -187,8 +192,8 @@ impl IdentityKey {
         self.interface.id()
     }
 
-    /// Sign a hash. Signing should be fast and always succeed.
-    pub fn sign(&self, hash: &Hash) -> Signature {
+    /// Sign a hash state. Signing should be fast and always succeed.
+    pub fn sign(&self, hash: &HashState) -> Signature {
         self.interface.sign(hash)
     }
 
@@ -338,6 +343,9 @@ impl TryFrom<&[u8]> for Identity {
             });
         };
         let id = ed25519_dalek::VerifyingKey::from_bytes(data).or(Err(CryptoError::BadKey))?;
+        if id.is_weak() {
+            return Err(CryptoError::BadKey);
+        }
         Ok(Identity { id })
     }
 }
@@ -398,8 +406,8 @@ pub trait SignInterface {
     /// Get the corresponding `Identity` for the private key.
     fn id(&self) -> &Identity;
 
-    /// Sign a hash.
-    fn sign(&self, hash: &Hash) -> Signature;
+    /// Sign the hash produced by the provided [`HashState`].
+    fn sign(&self, hash: &HashState) -> Signature;
 
     /// Export the signing key in an `IdentityLockbox`, with `receive_lock` as the recipient. If
     /// the key cannot be exported, this should return None.
@@ -434,10 +442,20 @@ pub trait SignInterface {
 #[derive(Clone)]
 pub struct BareIdKey {
     id: Identity,
-    inner: ed25519_dalek::SigningKey,
+    secret: ed25519_dalek::SecretKey,
 }
 
+impl Drop for BareIdKey {
+    /// Zeroizes the raw secret key before dropping the value
+    fn drop(&mut self) {
+        self.secret.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for BareIdKey {}
+
 impl std::fmt::Debug for BareIdKey {
+    /// Only displays the identity, never the actual key
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BareIdKey")
             .field("id", &self.id)
@@ -463,11 +481,7 @@ impl BareIdKey {
     /// Generate a new self-contained Identity key.
     #[cfg(feature = "getrandom")]
     pub fn new() -> Self {
-        let inner = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
-        let id = Identity {
-            id: inner.verifying_key(),
-        };
-        Self { id, inner }
+        Self::with_rng(&mut rand_core::OsRng)
     }
 
     /// Generate a new key given a cryptographic random number generator.
@@ -493,12 +507,21 @@ impl BareIdKey {
             });
         }
 
-        let inner = ed25519_dalek::SigningKey::generate(csprng);
+        // Construct the secret key and the public key
+        let mut secret = ed25519_dalek::SecretKey::default();
+        csprng.fill_bytes(&mut secret);
+        let expanded_secret = Self::expand(&secret);
         let id = Identity {
-            id: inner.verifying_key(),
+            id: ed25519_dalek::VerifyingKey::from(&expanded_secret),
         };
 
-        Ok(Self { id, inner })
+        Ok(Self { id, secret })
+    }
+
+    /// Expand the secret key using Blake2b512 instead of SHA-512
+    fn expand(key: &ed25519_dalek::SecretKey) -> ed25519_dalek::hazmat::ExpandedSecretKey {
+        let expanded: [u8; 64] = Blake2b512::new().chain_update(key).finalize().into();
+        ed25519_dalek::hazmat::ExpandedSecretKey::from_bytes(&expanded)
     }
 
     /// Attempt to parse a base58-encoded BareIdKey.
@@ -525,7 +548,7 @@ impl BareIdKey {
     pub fn encode_vec(&self, buf: &mut Vec<u8>) {
         buf.reserve(1 + ed25519_dalek::SECRET_KEY_LENGTH);
         buf.push(1u8);
-        buf.extend_from_slice(&self.inner.to_bytes())
+        buf.extend_from_slice(&self.secret)
     }
 }
 
@@ -556,14 +579,14 @@ impl TryFrom<&[u8]> for BareIdKey {
             });
         }
 
-        let secret_key =
-            ed25519_dalek::SecretKey::try_from(key).map_err(|_| CryptoError::BadKey)?;
-
-        let inner = ed25519_dalek::SigningKey::from_bytes(&secret_key);
-        let id = inner.verifying_key();
+        let secret = ed25519_dalek::SecretKey::try_from(key).map_err(|_| CryptoError::BadKey)?;
+        let id = ed25519_dalek::VerifyingKey::from(&Self::expand(&secret));
+        if id.is_weak() {
+            return Err(CryptoError::BadKey);
+        }
 
         Ok(Self {
-            inner,
+            secret,
             id: Identity { id },
         })
     }
@@ -593,7 +616,7 @@ impl fmt::UpperHex for BareIdKey {
 
 impl std::cmp::PartialEq for BareIdKey {
     fn eq(&self, other: &Self) -> bool {
-        self.inner.to_bytes() == other.inner.to_bytes()
+        self.secret == other.secret
     }
 }
 
@@ -601,16 +624,23 @@ impl std::cmp::Eq for BareIdKey {}
 
 impl std::hash::Hash for BareIdKey {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.inner.to_bytes().hash(state);
+        self.secret.hash(state);
     }
 }
 
 impl SignInterface for BareIdKey {
-    fn sign(&self, hash: &Hash) -> Signature {
-        let inner = self.inner.sign(hash.digest());
+    fn sign(&self, hasher: &HashState) -> Signature {
+        let expanded = Self::expand(&self.secret);
+        let inner = ed25519_dalek::hazmat::raw_sign_prehashed::<Blake2b512, Blake2b512>(
+            &expanded,
+            hasher.get_hasher(),
+            &self.id.id,
+            Some(V1_CONTEXT),
+        )
+        .unwrap();
 
         Signature {
-            hash_version: hash.version(),
+            hash_version: hasher.version(),
             id: self.id.clone(),
             inner,
         }
@@ -715,13 +745,14 @@ impl fmt::Debug for Signature {
 
 /// A signature that has been read from a byte slice but hasn't been verified yet.
 ///
-/// Verification can be done by getting the appropriate version of hash into the `verify(...)`
+/// Verification can be done by initializing a hasher with the appropriate version, feeding it the
+/// message that was signed, and passing the hasher into the [`verify`][UnverifiedSignature::verify]
 /// function.
 ///
 /// # Example
 /// ```
 /// # use fog_crypto::identity::*;
-/// # use fog_crypto::hash::Hash;
+/// # use fog_crypto::hash::HashState;
 /// # use std::convert::TryFrom;
 /// # use std::sync::Arc;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -730,14 +761,15 @@ impl fmt::Debug for Signature {
 /// # let mut encoded = Vec::new();
 /// let data = b"I am some test data";
 /// // ...
-/// # let hash = Hash::new(&data[..]);
-/// # let signature = key.sign(&hash);
+/// # let hasher = HashState::new().chain_update(&data[..]);
+/// # let signature = key.sign(&hasher);
 /// # signature.encode_vec(&mut encoded);
 ///
 /// let unverified = UnverifiedSignature::try_from(&encoded[..])?;
 /// let hash_version = unverified.hash_version();
-/// let hash = Hash::with_version(&data[..], hash_version)?;
-/// match unverified.verify(&hash) {
+/// let mut hasher = HashState::with_version(hash_version)?;
+/// hasher.update(&data[..]);
+/// match unverified.verify(&hasher) {
 ///     Ok(verified) => {
 ///         println!("Got valid signature, signed by {}", verified.signer());
 ///     },
@@ -768,20 +800,34 @@ impl UnverifiedSignature {
     }
 
     /// Verify the Signature, producing a verified Signature or failing.
-    pub fn verify(self, hash: &Hash) -> Result<Signature, CryptoError> {
-        if hash.version() != self.hash_version {
+    pub fn verify(self, hasher: &HashState) -> Result<Signature, CryptoError> {
+        if hasher.version() != self.hash_version {
             return Err(CryptoError::ObjectMismatch(
                 "Verification step got wrong version of hash",
             ));
         }
-        if self
-            .id
-            .id
-            .verify_strict(hash.digest(), &self.signature)
-            .is_err()
+
+        // Check for small torsion components in the R value of the signature. The original Ed25519
+        // RFC considers this check optional, but we would like to avoid any point malleability.
+        let compressed_r = self.signature.r_bytes();
+        let expanded_r = curve25519_dalek::edwards::CompressedEdwardsY(*compressed_r)
+            .decompress()
+            .ok_or(CryptoError::SignatureFailed)?;
+        if expanded_r.is_small_order() {
+            return Err(CryptoError::SignatureFailed);
+        }
+
+        if ed25519_dalek::hazmat::raw_verify_prehashed::<Blake2b512, Blake2b512>(
+            &self.id.id,
+            hasher.get_hasher(),
+            Some(V1_CONTEXT),
+            &self.signature,
+        )
+        .is_err()
         {
             return Err(CryptoError::SignatureFailed);
         }
+
         Ok(Signature {
             hash_version: self.hash_version,
             id: self.id,
@@ -847,6 +893,9 @@ impl TryFrom<&[u8]> for UnverifiedSignature {
         let id = Identity {
             id: ed25519_dalek::VerifyingKey::from_bytes(raw_id).or(Err(CryptoError::BadKey))?,
         };
+        if id.id.is_weak() {
+            return Err(CryptoError::BadKey);
+        }
         let signature = ed25519_dalek::Signature::try_from(raw_signature)
             .or(Err(CryptoError::SignatureFailed))?;
         Ok(UnverifiedSignature {
@@ -985,8 +1034,8 @@ mod tests {
     fn signature_len() {
         let mut csprng = rand::rngs::OsRng;
         let key = IdentityKey::with_rng(&mut csprng);
-        let hash = Hash::new(b"I am a test string");
-        let sign = key.sign(&hash);
+        let hasher = HashState::new().chain_update(b"I am a test string");
+        let sign = key.sign(&hasher);
         let len = sign.size();
 
         let mut enc = Vec::new();
@@ -1001,11 +1050,11 @@ mod tests {
 
         // Make new hash and check it
         let test_data = b"This is a test";
-        let hash = Hash::new(test_data);
-        let sign = key.sign(&hash);
+        let hasher = HashState::new().chain_update(test_data);
+        let sign = key.sign(&hasher);
         assert_eq!(
             sign.hash_version(),
-            hash.version(),
+            hasher.version(),
             "Hash version in signature should match Hash's"
         );
         assert_eq!(
@@ -1019,7 +1068,7 @@ mod tests {
         sign.encode_vec(&mut enc);
         let dec_sign = UnverifiedSignature::try_from(&enc[..])
             .expect("Wasn't able to decode an unverified signature")
-            .verify(&hash)
+            .verify(&hasher)
             .expect("Wasn't able to verify the signature");
         assert_eq!(
             dec_sign.signer(),
@@ -1040,9 +1089,9 @@ mod tests {
 
         // Make new hash and check it
         let test_data = b"This is a test";
-        let hash = Hash::new(test_data);
-        let bad_hash = Hash::new(b"Not the same data");
-        let sign = key.sign(&hash);
+        let hasher = HashState::new().chain_update(test_data);
+        let bad_hasher = HashState::new().chain_update(b"Not the same data");
+        let sign = key.sign(&hasher);
 
         // Encode
         let mut enc = Vec::new();
@@ -1050,7 +1099,7 @@ mod tests {
         // Decode: Fail the verification step
         let unverified = UnverifiedSignature::try_from(&enc[..])
             .expect("Wasn't able to decode an unverified signature");
-        if let Err(CryptoError::SignatureFailed) = unverified.verify(&bad_hash) {
+        if let Err(CryptoError::SignatureFailed) = unverified.verify(&bad_hasher) {
         } else {
             panic!(
                 "Signature verification should fail with SignatureFailed when given the wrong Hash"
@@ -1065,8 +1114,8 @@ mod tests {
 
         // Make new hash and check it
         let test_data = b"This is a test";
-        let hash = Hash::new(test_data);
-        let sign = key.sign(&hash);
+        let hasher = HashState::new().chain_update(test_data);
+        let sign = key.sign(&hasher);
 
         // Encode
         let mut enc = Vec::new();
@@ -1102,8 +1151,8 @@ mod tests {
 
         // Make new hash and check it
         let test_data = b"This is a test";
-        let hash = Hash::new(test_data);
-        let sign = key.sign(&hash);
+        let hasher = HashState::new().chain_update(test_data);
+        let sign = key.sign(&hasher);
 
         // Encode
         let mut enc = Vec::new();
@@ -1139,8 +1188,8 @@ mod tests {
 
         // Make new hash and check it
         let test_data = b"This is a test";
-        let hash = Hash::new(test_data);
-        let sign = key.sign(&hash);
+        let hasher = HashState::new().chain_update(test_data);
+        let sign = key.sign(&hasher);
 
         // Encode
         let mut enc = Vec::new();
@@ -1164,7 +1213,7 @@ mod tests {
         let last = enc.last_mut().unwrap();
         *last = !*last;
         let unverified = UnverifiedSignature::try_from(&enc[..]).unwrap();
-        if let Err(CryptoError::SignatureFailed) = unverified.verify(&hash) {
+        if let Err(CryptoError::SignatureFailed) = unverified.verify(&hasher) {
         } else {
             panic!("Should fail with SignatureFailed when the last signature byte is wrong");
         }
@@ -1175,7 +1224,7 @@ mod tests {
         let near_last = enc.get_mut(len - 2).unwrap();
         *near_last = !*near_last;
         let unverified = UnverifiedSignature::try_from(&enc[..]).unwrap();
-        if let Err(CryptoError::SignatureFailed) = unverified.verify(&hash) {
+        if let Err(CryptoError::SignatureFailed) = unverified.verify(&hasher) {
         } else {
             panic!("Should fail with SignatureFailed when the signature bytes are wrong");
         }
@@ -1188,8 +1237,8 @@ mod tests {
 
         // Make new hash and check it
         let test_data = b"This is a test";
-        let hash = Hash::new(test_data);
-        let sign = key.sign(&hash);
+        let hasher = HashState::new().chain_update(test_data);
+        let sign = key.sign(&hasher);
 
         // Encode
         let mut enc = Vec::new();
@@ -1199,7 +1248,7 @@ mod tests {
         match UnverifiedSignature::try_from(&enc[..]) {
             Err(CryptoError::BadKey) => {}
             Ok(unverified) => {
-                if let Err(CryptoError::SignatureFailed) = unverified.verify(&hash) {
+                if let Err(CryptoError::SignatureFailed) = unverified.verify(&hasher) {
                 } else {
                     panic!("Should fail with SignatureFailed when identity is wrong for signature");
                 }
@@ -1218,8 +1267,8 @@ mod tests {
 
         // Make new hash and check it
         let test_data = b"This is a test";
-        let hash = Hash::new(test_data);
-        let sign = key.sign(&hash);
+        let hasher = HashState::new().chain_update(test_data);
+        let sign = key.sign(&hasher);
 
         let mut enc = Vec::new();
         sign.encode_vec(&mut enc);
@@ -1231,7 +1280,7 @@ mod tests {
                 panic!("Key should be valid, just wrong for the signature");
             }
             Ok(unverified) => {
-                if let Err(CryptoError::SignatureFailed) = unverified.verify(&hash) {
+                if let Err(CryptoError::SignatureFailed) = unverified.verify(&hasher) {
                 } else {
                     panic!("Should fail with SignatureFailed when identity is wrong for signature");
                 }

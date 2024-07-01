@@ -6,10 +6,11 @@ int main() {
 
   sodium_init();
 
-  uint8_t out[32];
+  uint8_t out[64];
   uint8_t in[256];
   size_t in_len = 0;
   size_t out_len = sizeof out;
+  size_t out_trunc = 32;
 
   for (int i=0; i<256; i++) {
     in[i] = i;
@@ -20,7 +21,7 @@ int main() {
     in_len = j;
     crypto_generichash_blake2b(out, sizeof out, in, in_len, NULL, 0);
     printf("{ \"out\":\"");
-    for (int i=0; i<out_len; i=i+1) { 
+    for (int i=0; i<out_trunc; i=i+1) { 
       printf("%02x", out[i]);
     }
     printf("\",\"input\":\"");

@@ -27,7 +27,7 @@ use std::{
     fmt,
 };
 
-use blake2::{digest::consts::U32, Blake2b, Digest};
+use blake2::{Blake2b512, Digest};
 
 use subtle::{Choice, ConstantTimeEq};
 
@@ -41,7 +41,7 @@ pub const MIN_HASH_VERSION: u8 = 1;
 pub const MAX_HASH_VERSION: u8 = 1;
 
 const V1_DIGEST_SIZE: usize = 32;
-type V1Blake = Blake2b<U32>;
+type V1Blake = Blake2b512;
 
 /// Maximum size that a hash could be. This may change when versions increment.
 pub const MAX_HASH_LEN: usize = 1 + V1_DIGEST_SIZE;
@@ -53,7 +53,7 @@ pub const MAX_HASH_LEN: usize = 1 + V1_DIGEST_SIZE;
 /// overridden with hex formatting or debug formatting.
 ///
 /// # Supported Versions
-/// - 1: Blake2B hash with 32 bytes of digest
+/// - 1: Blake2b512 hash, truncated to 32 bytes (specifically *not* Blake2b-256)
 ///
 /// # Example
 /// ```
@@ -261,6 +261,10 @@ impl HashState {
         1u8
     }
 
+    pub fn chain_update(self, data: impl AsRef<[u8]>) -> Self {
+        Self { state: self.state.chain_update(data) }
+    }
+
     /// Update the hasher with new input data.
     pub fn update(&mut self, data: impl AsRef<[u8]>) {
         self.state.update(data);
@@ -276,8 +280,13 @@ impl HashState {
         let mut data = [0u8; MAX_HASH_LEN];
         data[0] = 1u8;
         let hash = self.state.finalize();
-        data[1..].copy_from_slice(&hash);
+        data[1..].copy_from_slice(&hash[..V1_DIGEST_SIZE]);
         Hash { data }
+    }
+
+    /// Get the raw internal hasher, for use by the signature scheme
+    pub(crate) fn get_hasher(&self) -> Blake2b512 {
+        self.state.clone()
     }
 }
 
@@ -355,9 +364,10 @@ mod tests {
             _ => panic!("HashState should always fail on version 0"),
         };
         let digest =
-            hex::decode("8b57a796a5d07cb04cc1614dfc2acb3f73edc712d7f433619ca3bbe66bb15f49")
+            hex::decode("29102511d749db3cc9b4e335fa1f5e8faca8421d558f6a3f3321d50d044a248b")
                 .unwrap();
         let h = Hash::new(hex::decode("00010203040506070809").unwrap());
+        println!("{:x}", h);
         assert_eq!(h.version(), 1);
         assert_eq!(h.digest(), &digest[..]);
     }
@@ -370,7 +380,7 @@ mod tests {
         // Golden test case
         let h = Hash::new(b"I am data, about to be hashed.");
         let b58 = h.to_base58();
-        let expected = "PnQZwqcH74g1gGpsRbPpzpPqTaHU5PELxrwAosE9MWxM";
+        let expected = "RZFFUn8VJpFnyYbW9f2cnyMG4mS3jpARy3EjG5PKgkgZ";
         let eq = b58 == expected;
         if !eq {
             println!("Base58 actual:   {}", b58);
