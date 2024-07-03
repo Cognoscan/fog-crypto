@@ -65,8 +65,8 @@ use zeroize::Zeroize;
 use std::{convert::TryFrom, fmt, sync::Arc};
 
 use blake2::{
+    digest::{consts::U32, FixedOutput, Mac},
     Blake2bMac,
-    digest::{consts::U32, Mac, FixedOutput},
 };
 type V1KeyId = Blake2bMac<U32>;
 
@@ -124,7 +124,6 @@ impl Default for StreamKey {
 }
 
 impl StreamKey {
-
     /// Create a new `StreamKey` to hold a `StreamInterface` implementation. Can be used by
     /// implementors of a vault when making new `StreamKey` instances.
     pub fn from_interface(interface: Arc<dyn StreamInterface>) -> Self {
@@ -170,10 +169,7 @@ impl StreamKey {
 
     #[cfg(feature = "getrandom")]
     /// Encrypt a byte slice into a `DataLockbox`.
-    pub fn encrypt_data(
-        &self,
-        content: &[u8],
-    ) -> DataLockbox {
+    pub fn encrypt_data(&self, content: &[u8]) -> DataLockbox {
         self.encrypt_data_with_rng(&mut rand_core::OsRng, content)
     }
 
@@ -218,10 +214,7 @@ impl StreamKey {
 
     /// Pack this secret into a `StreamLockbox`, meant for the recipient specified by `id`. Returns
     /// None if this key cannot be exported.
-    pub fn export_for_lock(
-        &self,
-        lock: &LockId,
-    ) -> Option<StreamLockbox> {
+    pub fn export_for_lock(&self, lock: &LockId) -> Option<StreamLockbox> {
         self.interface.self_export_lock(&mut rand_core::OsRng, lock)
     }
 
@@ -240,11 +233,9 @@ impl StreamKey {
     /// None if this key cannot be exported for the given recipient. Generally, the recipient
     /// should be in the same Vault as the key being exported, or the exported key should be a
     /// temporary key.
-    pub fn export_for_stream(
-        &self,
-        stream: &StreamKey,
-    ) -> Option<StreamLockbox> {
-        self.interface.self_export_stream(&mut rand_core::OsRng, stream)
+    pub fn export_for_stream(&self, stream: &StreamKey) -> Option<StreamLockbox> {
+        self.interface
+            .self_export_stream(&mut rand_core::OsRng, stream)
     }
 
     /// Pack this key into a `StreamLockbox`, meant for the recipient specified by `stream`. Returns
@@ -352,13 +343,9 @@ pub fn stream_id_from_key(version: u8, key: &[u8]) -> StreamId {
     assert_eq!(version, 1u8, "StreamKey must have version of 1");
     let mut hasher = V1KeyId::new_with_salt_and_personal(&[], &[], b"fog-crypto-sid").unwrap();
     hasher.update(key);
-    let mut id = StreamId {
-        inner: Vec::with_capacity(1 + V1_STREAM_ID_SIZE),
-    };
-    id.inner.push(1u8);
-    let hash_raw = hasher.finalize_fixed();
-    id.inner.extend_from_slice(&hash_raw[..]);
-    id
+    StreamId {
+        inner: hasher.finalize_fixed().into(),
+    }
 }
 
 /// A self-contained implementor of `StreamInterface`. It's expected this will be used unless the
@@ -376,7 +363,6 @@ impl Default for BareStreamKey {
 }
 
 impl BareStreamKey {
-
     /// Generate a new random key.
     #[cfg(feature = "getrandom")]
     pub fn new() -> Self {
@@ -441,10 +427,7 @@ impl BareStreamKey {
 
     /// Decrypt a lockbox's individual parts. This is only used by the `StreamInterface`
     /// implementation.
-    fn decrypt_parts(
-        &self,
-        parts: LockboxParts,
-    ) -> Result<Vec<u8>, CryptoError> {
+    fn decrypt_parts(&self, parts: LockboxParts) -> Result<Vec<u8>, CryptoError> {
         if !parts.ty.is_for_stream() {
             return Err(CryptoError::ObjectMismatch(
                 "Attempted to use a StreamKey to decrypt a lockbox with a LockId recipient",
@@ -648,16 +631,16 @@ impl StreamInterface for BareStreamKey {
 ///
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct StreamId {
-    inner: Vec<u8>,
+    inner: [u8; V1_STREAM_ID_SIZE],
 }
 
 impl StreamId {
     pub fn version(&self) -> u8 {
-        self.inner[0]
+        1
     }
 
     pub fn raw_identifier(&self) -> &[u8] {
-        &self.inner[1..]
+        &self.inner
     }
 
     /// Convert into a byte vector. For extending an existing byte vector, see
@@ -670,24 +653,29 @@ impl StreamId {
 
     /// Convert into a base58-encoded StreamId.
     pub fn to_base58(&self) -> String {
-        bs58::encode(&self.inner).into_string()
+        let mut enc = [0u8; 1 + V1_STREAM_ID_SIZE];
+        enc[0] = self.version();
+        enc[1..].copy_from_slice(&self.inner);
+        bs58::encode(&enc).into_string()
     }
 
     /// Attempt to parse a base58-encoded StreamId.
     pub fn from_base58(s: &str) -> Result<Self, CryptoError> {
-        let raw = bs58::decode(s)
-            .into_vec()
+        let mut dec = [0u8; 1 + V1_STREAM_ID_SIZE];
+        let written = bs58::decode(s)
+            .onto(&mut dec)
             .or(Err(CryptoError::BadFormat("Not valid Base58")))?;
-        Self::try_from(&raw[..])
+        Self::try_from(&dec[..written])
     }
 
     pub fn encode_vec(&self, buf: &mut Vec<u8>) {
         buf.reserve(self.size());
+        buf.push(self.version());
         buf.extend_from_slice(&self.inner);
     }
 
     pub fn size(&self) -> usize {
-        self.inner.len()
+        1 + V1_STREAM_ID_SIZE
     }
 }
 
@@ -696,22 +684,34 @@ impl TryFrom<&[u8]> for StreamId {
     /// Value must be the same length as the StreamId was when it was encoded (no trailing bytes
     /// allowed).
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let _version = value.first().ok_or(CryptoError::BadLength {
+        let (version, key) = value.split_first().ok_or(CryptoError::BadLength {
             step: "get stream version",
             actual: 0,
             expected: 1,
         })?;
-        let expected_len = 33;
-        if value.len() != expected_len {
-            return Err(CryptoError::BadLength {
-                step: "get stream id",
-                actual: value.len(),
-                expected: expected_len,
+        let version = *version;
+        if version > MAX_STREAM_VERSION || version < MIN_STREAM_VERSION {
+            return Err(CryptoError::UnsupportedVersion {
+                ty: VersionType::SymmetricKey,
+                version,
+                min: MIN_STREAM_VERSION,
+                max: MAX_STREAM_VERSION,
             });
         }
-        Ok(Self {
-            inner: Vec::from(value),
-        })
+
+        if key.len() != V1_STREAM_ID_SIZE {
+            return Err(CryptoError::BadLength {
+                step: "get stream id",
+                expected: V1_STREAM_ID_SIZE,
+                actual: value.len(),
+            });
+        }
+
+        let mut new = Self {
+            inner: [0; V1_STREAM_ID_SIZE],
+        };
+        new.inner.copy_from_slice(&key[..V1_STREAM_ID_SIZE]);
+        Ok(new)
     }
 }
 
@@ -767,7 +767,8 @@ mod tests {
             version: 99u8,
             min: MIN_STREAM_VERSION,
             max: MAX_STREAM_VERSION,
-        }) = result else {
+        }) = result
+        else {
             panic!("Didn't get expected error on new_temp_with_version");
         };
     }
